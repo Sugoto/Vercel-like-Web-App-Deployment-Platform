@@ -26,4 +26,5 @@ proxy.on("proxyReq", (proxyReq, req, res) => {
   if (url === "/") proxyReq.path += "index.html";
 });
 
+// Start the server
 app.listen(PORT, () => console.log(`Reverse Proxy Running..${PORT}`));
