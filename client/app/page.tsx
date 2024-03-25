@@ -67,7 +67,11 @@ export default function Home() {
   }, [handleSocketIncommingMessage]);
 
   return (
-    <main className="flex justify-center items-center h-[100vh]">
+    <main className="flex flex-col justify-center items-center h-[100vh]">
+      <h1 className="text-4xl font-bold text-center mb-2">
+        Verse - Publish your story
+      </h1>
+      <h2 className="text-2xl text-center mb-8">By Sugoto Basu</h2>
       <div className="w-[600px]">
         <span className="flex justify-start items-center gap-2">
           <Github className="text-5xl" />
