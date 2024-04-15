@@ -5,8 +5,10 @@ const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const mime = require("mime-types");
 const Redis = require("ioredis");
 
+// Publisher
 const publisher = new Redis("");
 
+// Client
 const s3Client = new S3Client({
   region: "",
   credentials: {
