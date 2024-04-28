@@ -17,6 +17,10 @@ app.use((req, res, next) => {
   next();
 });
 
+app.get("/", (req, res) => {
+  res.send("This is the Verse API");
+});
+
 const subscriber = new Redis(
   "rediss://red-con2m9gcmk4c739tla3g:TepoalVGzZA6CLFfvLQMHUd3a3l5zEdR@singapore-redis.render.com:6379"
 );
