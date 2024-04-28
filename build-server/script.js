@@ -6,14 +6,16 @@ const mime = require("mime-types");
 const Redis = require("ioredis");
 
 // Publisher
-const publisher = new Redis("");
+const publisher = new Redis(
+  "rediss://red-con2m9gcmk4c739tla3g:TepoalVGzZA6CLFfvLQMHUd3a3l5zEdR@singapore-redis.render.com:6379"
+);
 
 // Client
 const s3Client = new S3Client({
-  region: "",
+  region: "ap-south-1",
   credentials: {
-    accessKeyId: "",
-    secretAccessKey: "",
+    accessKeyId: "AKIAYWYO3LN65PP2GA7W",
+    secretAccessKey: "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",
   },
 });
 
@@ -57,7 +59,7 @@ async function init() {
       publishLog(`uploading ${file}`);
 
       const command = new PutObjectCommand({
-        Bucket: "vercel-clone-outputs",
+        Bucket: "verse-outputs",
         Key: `__outputs/${PROJECT_ID}/${file}`,
         Body: fs.createReadStream(filePath),
         ContentType: mime.lookup(filePath),
