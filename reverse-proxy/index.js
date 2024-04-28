@@ -5,7 +5,7 @@ const app = express();
 const PORT = 8000;
 
 const BASE_PATH =
-  "https://vercel-clone-outputs.s3.ap-south-1.amazonaws.com/__outputs";
+  "https://verse-outputs.s3.ap-south-1.amazonaws.com/__outputs";
 
 const proxy = httpProxy.createProxy();
 

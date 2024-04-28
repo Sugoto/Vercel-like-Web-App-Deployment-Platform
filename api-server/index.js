@@ -7,7 +7,19 @@ const Redis = require("ioredis");
 const app = express();
 const PORT = 9000;
 
-const subscriber = new Redis("");
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  if (req.method === 'OPTIONS') {
+    res.header('Access-Control-Allow-Methods', 'PUT, POST, PATCH, DELETE, GET');
+    return res.status(200).json({});
+  }
+  next();
+});
+
+const subscriber = new Redis(
+  "rediss://red-con2m9gcmk4c739tla3g:TepoalVGzZA6CLFfvLQMHUd3a3l5zEdR@singapore-redis.render.com:6379"
+);
 
 const io = new Server({ cors: "*" });
 
@@ -21,16 +33,16 @@ io.on("connection", (socket) => {
 io.listen(9002, () => console.log("Socket Server 9002"));
 
 const ecsClient = new ECSClient({
-  region: "",
+  region: "ap-south-1",
   credentials: {
-    accessKeyId: "",
-    secretAccessKey: "",
+    accessKeyId: "AKIAYWYO3LN65PP2GA7W",
+    secretAccessKey: "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",
   },
 });
 
 const config = {
-  CLUSTER: "",
-  TASK: "",
+  CLUSTER: "arn:aws:ecs:ap-south-1:598642219901:cluster/verse-builder-cluster",
+  TASK: "arn:aws:ecs:ap-south-1:598642219901:task-definition/builder-task",
 };
 
 app.use(express.json());
@@ -48,8 +60,12 @@ app.post("/project", async (req, res) => {
     networkConfiguration: {
       awsvpcConfiguration: {
         assignPublicIp: "ENABLED",
-        subnets: ["", "", ""],
-        securityGroups: [""],
+        subnets: [
+          "subnet-0a14985e7cb37d591",
+          "subnet-0c449ad212d2b9917",
+          "subnet-022bfc3a10c7c7dfb",
+        ],
+        securityGroups: ["sg-0cadea0c5a209b487"],
       },
     },
     overrides: {
