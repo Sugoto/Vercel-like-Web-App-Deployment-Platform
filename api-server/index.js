@@ -1,4 +1,5 @@
 const express = require("express");
+require('dotenv').config();
 const { generateSlug } = require("random-word-slugs");
 const { ECSClient, RunTaskCommand } = require("@aws-sdk/client-ecs");
 const { Server } = require("socket.io");
@@ -21,9 +22,7 @@ app.get("/", (req, res) => {
   res.send("This is the Verse API");
 });
 
-const subscriber = new Redis(
-  "rediss://red-con2m9gcmk4c739tla3g:TepoalVGzZA6CLFfvLQMHUd3a3l5zEdR@singapore-redis.render.com:6379"
-);
+const subscriber = new Redis(process.env.REDIS_URL);
 
 const io = new Server({ cors: "*" });
 
@@ -39,8 +38,8 @@ io.listen(9002, () => console.log("Socket Server 9002"));
 const ecsClient = new ECSClient({
   region: "ap-south-1",
   credentials: {
-    accessKeyId: "AKIAYWYO3LN65PP2GA7W",
-    secretAccessKey: "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",
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 });
 
