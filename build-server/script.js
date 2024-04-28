@@ -14,8 +14,8 @@ const publisher = new Redis(
 const s3Client = new S3Client({
   region: "ap-south-1",
   credentials: {
-    accessKeyId: "AKIAYWYO3LN65PP2GA7W",
-    secretAccessKey: "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",
+    accessKeyId: "AKIAYWYO3LN6TAIWAERO",
+    secretAccessKey: "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",
   },
 });
 
