@@ -11,7 +11,6 @@ const subscriber = new Redis("");
 
 const io = new Server({ cors: "*" });
 
-// Socket connect
 io.on("connection", (socket) => {
   socket.on("subscribe", (channel) => {
     socket.join(channel);
