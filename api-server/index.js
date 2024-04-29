@@ -88,7 +88,7 @@ app.post("/project", async (req, res) => {
 
   return res.json({
     status: "queued",
-    data: { projectSlug, url: `http://${projectSlug}.localhost:8000` },
+    data: { projectSlug, url: `https://${projectSlug}.verse-reverse-proxy.onrender.com` },
   });
 });
 

@@ -30,4 +30,8 @@ proxy.on("proxyReq", (proxyReq, req, res) => {
   if (url === "/") proxyReq.path += "index.html";
 });
 
+proxy.on('error', function(err, req, res) {
+  console.log('Error in proxying request:', err);
+});
+
 app.listen(PORT, () => console.log(`Reverse Proxy Running on port ${PORT}`));
