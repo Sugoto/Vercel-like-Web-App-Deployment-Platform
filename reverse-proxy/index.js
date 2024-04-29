@@ -2,23 +2,23 @@ const express = require("express");
 const httpProxy = require("http-proxy");
 
 const app = express();
-const PORT = 8000;
+const PORT = process.env.PORT || 8000;
 
-// app.get("/", (req, res) => {
-//   res.send("This is the Verse Reverse Proxy");
-// });
-
-
-const BASE_PATH =
-  "https://verse-outputs.s3.ap-south-1.amazonaws.com/__outputs";
+const BASE_PATH = "https://verse-outputs.s3.ap-south-1.amazonaws.com/__outputs";
 
 const proxy = httpProxy.createProxy();
+
+app.use((req, res, next) => {
+  console.log("Received request for:", req.url);
+  next();
+});
 
 app.use((req, res) => {
   const hostname = req.hostname;
   const subdomain = hostname.split(".")[0];
 
-  // Custom Domain - DB Query
+  console.log("Hostname:", hostname);
+  console.log("Subdomain:", subdomain);
 
   const resolvesTo = `${BASE_PATH}/${subdomain}`;
 
@@ -30,5 +30,4 @@ proxy.on("proxyReq", (proxyReq, req, res) => {
   if (url === "/") proxyReq.path += "index.html";
 });
 
-// Start the server
-app.listen(PORT, () => console.log(`Reverse Proxy Running..${PORT}`));
+app.listen(PORT, () => console.log(`Reverse Proxy Running on port ${PORT}`));
