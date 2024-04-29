@@ -14,7 +14,7 @@ app.use((req, res, next) => {
 });
 
 app.use((req, res) => {
-  const hostname = req.headers.host;
+  const hostname = req.hostname;
   const subdomain = hostname.split(".")[0];
 
   console.log("Hostname:", hostname);
