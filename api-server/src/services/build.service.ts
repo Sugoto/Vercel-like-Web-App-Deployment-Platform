@@ -122,25 +122,17 @@ async function runBuild(slug: string, gitUrl: string): Promise<void> {
 
     phaseStart = Date.now();
     log("Installing dependencies...");
-    try {
-      await runCommand("npm", ["install"], log, {
-        cwd: tmpDir,
-        timeout: BUILD_TIMEOUT,
-      });
-    } catch {
-      log("Retrying with --legacy-peer-deps...");
-      await runCommand("npm", ["install", "--legacy-peer-deps"], log, {
-        cwd: tmpDir,
-        timeout: BUILD_TIMEOUT,
-      });
-    }
+    await runCommand("bun", ["install"], log, {
+      cwd: tmpDir,
+      timeout: BUILD_TIMEOUT,
+    });
     phaseDuration = Date.now() - phaseStart;
     phases.push({ name: "install", durationMs: phaseDuration });
     publishEvent(slug, { type: "metric", phase: "install", durationMs: phaseDuration });
 
     phaseStart = Date.now();
     log("Building project...");
-    await runCommand("npm", ["run", "build"], log, {
+    await runCommand("bun", ["run", "build"], log, {
       cwd: tmpDir,
       timeout: BUILD_TIMEOUT,
     });
