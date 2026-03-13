@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Verse - Publish your story",
+  title: "Verse",
   description: "Vercel-like Web App Deployment Platform by Sugoto Basu",
 };
 

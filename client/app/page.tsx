@@ -231,8 +231,9 @@ function LiveMetrics({ phaseMetrics, elapsedMs, status }: { phaseMetrics: PhaseM
 
 // --- Build Summary Card ---
 
-function BuildSummaryCard({ summary }: { summary: BuildSummary }) {
+function BuildSummaryCard({ summary, logs }: { summary: BuildSummary; logs: string[] }) {
   const [showFiles, setShowFiles] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
   const totalPhaseMs = summary.phases.reduce((sum, p) => sum + p.durationMs, 0);
 
   const filesByType: Record<string, { path: string; sizeBytes: number }[]> = {};
@@ -295,7 +296,6 @@ function BuildSummaryCard({ summary }: { summary: BuildSummary }) {
           className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           {showFiles ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          <FileText className="h-3 w-3" />
           <span>View uploaded files</span>
         </button>
 
@@ -317,6 +317,39 @@ function BuildSummaryCard({ summary }: { summary: BuildSummary }) {
                 </div>
               ))}
           </div>
+        )}
+
+        {/* Build logs (collapsible) */}
+        {logs.length > 0 && (
+          <>
+            <button
+              onClick={() => setShowLogs(!showLogs)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showLogs ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              <span>Build logs ({logs.length} lines)</span>
+            </button>
+
+            {showLogs && (
+              <div className={`${firaCode.className} rounded-lg bg-muted/20 border border-border/30 p-3 max-h-64 overflow-y-auto text-[12px] leading-relaxed`}>
+                {logs.map((line, i) => {
+                  const isError = line.toLowerCase().includes("error") || line.toLowerCase().includes("failed");
+                  const isSuccess = line.toLowerCase().includes("uploaded") || line.toLowerCase().includes("complete");
+                  return (
+                    <div
+                      key={i}
+                      className={`py-0.5 ${isError ? "text-red-400" : isSuccess ? "text-emerald-400" : "text-foreground/60"}`}
+                    >
+                      <span className="text-muted-foreground/30 select-none mr-2 inline-block w-4 text-right tabular-nums text-[10px]">
+                        {i + 1}
+                      </span>
+                      {line}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -355,19 +388,50 @@ function StatusBadge({ status }: { status: DeployStatus }) {
 
 // --- Main Page ---
 
+interface PersistedState {
+  repoURL: string;
+  logs: string[];
+  status: DeployStatus;
+  deployPreviewURL?: string;
+  phaseMetrics: PhaseMetric[];
+  buildSummary: BuildSummary | null;
+  elapsedMs: number;
+}
+
+function loadPersistedState(): PersistedState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("verse-deploy-state");
+    if (!raw) return null;
+    const state = JSON.parse(raw) as PersistedState;
+    if (state.status === "deployed" || state.status === "failed") return state;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function persistState(state: PersistedState) {
+  try {
+    localStorage.setItem("verse-deploy-state", JSON.stringify(state));
+  } catch {}
+}
+
 export default function Home() {
-  const [repoURL, setURL] = useState("");
-  const [logs, setLogs] = useState<string[]>([]);
-  const [status, setStatus] = useState<DeployStatus>("idle");
-  const [deployPreviewURL, setDeployPreviewURL] = useState<string>();
+  const saved = useRef(loadPersistedState());
+
+  const [repoURL, setURL] = useState(saved.current?.repoURL || "");
+  const [logs, setLogs] = useState<string[]>(saved.current?.logs || []);
+  const [status, setStatus] = useState<DeployStatus>(saved.current?.status || "idle");
+  const [deployPreviewURL, setDeployPreviewURL] = useState<string | undefined>(saved.current?.deployPreviewURL);
   const [error, setError] = useState<string>();
   const [copied, setCopied] = useState(false);
   const [deployments, setDeployments] = useState<
     { slug: string; gitUrl: string; status: string; createdAt: string; buildDurationMs?: number; totalSizeBytes?: number }[]
   >([]);
-  const [phaseMetrics, setPhaseMetrics] = useState<PhaseMetric[]>([]);
-  const [buildSummary, setBuildSummary] = useState<BuildSummary | null>(null);
-  const [elapsedMs, setElapsedMs] = useState(0);
+  const [phaseMetrics, setPhaseMetrics] = useState<PhaseMetric[]>(saved.current?.phaseMetrics || []);
+  const [buildSummary, setBuildSummary] = useState<BuildSummary | null>(saved.current?.buildSummary || null);
+  const [elapsedMs, setElapsedMs] = useState(saved.current?.elapsedMs || 0);
   const [buildStartTime, setBuildStartTime] = useState<number | null>(null);
 
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -386,30 +450,33 @@ export default function Home() {
   const handleSocketMessage = useCallback((message: string) => {
     try {
       const parsed = JSON.parse(message);
-
-      if (parsed.type === "metric") {
-        setPhaseMetrics((prev) => [...prev, { name: parsed.phase, durationMs: parsed.durationMs }]);
-        return;
-      }
-
-      if (parsed.type === "summary") {
-        setBuildSummary(parsed as BuildSummary);
-        return;
-      }
-
       const { log } = parsed;
-      if (log === "Done") {
-        setStatus("deployed");
-        if (timerRef.current) clearInterval(timerRef.current);
-        socketRef.current?.disconnect();
-        socketRef.current = null;
-        return;
-      }
-      if (typeof log === "string" && log.startsWith("Build failed")) {
-        setStatus("failed");
-        if (timerRef.current) clearInterval(timerRef.current);
-      }
+
       if (typeof log === "string") {
+        // Check if the log content is a structured event (metric/summary)
+        try {
+          const event = JSON.parse(log);
+          if (event.type === "metric") {
+            setPhaseMetrics((prev) => [...prev, { name: event.phase, durationMs: event.durationMs }]);
+            return;
+          }
+          if (event.type === "summary") {
+            setBuildSummary(event as BuildSummary);
+            return;
+          }
+        } catch {}
+
+        if (log === "Done") {
+          setStatus("deployed");
+          if (timerRef.current) clearInterval(timerRef.current);
+          socketRef.current?.disconnect();
+          socketRef.current = null;
+          return;
+        }
+        if (log.startsWith("Build failed")) {
+          setStatus("failed");
+          if (timerRef.current) clearInterval(timerRef.current);
+        }
         setLogs((prev) => [...prev, log]);
       }
     } catch {
@@ -481,8 +548,9 @@ export default function Home() {
   useEffect(() => {
     if (status === "deployed" || status === "failed") {
       fetchDeployments();
+      persistState({ repoURL, logs, status, deployPreviewURL, phaseMetrics, buildSummary, elapsedMs });
     }
-  }, [status, fetchDeployments]);
+  }, [status, fetchDeployments, repoURL, logs, deployPreviewURL, phaseMetrics, buildSummary, elapsedMs]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -500,11 +568,8 @@ export default function Home() {
         <div className="w-full max-w-xl space-y-6">
           {/* Hero */}
           <div className="text-center space-y-2">
-            <div className="flex items-center justify-center gap-2 mb-4">
-              <Rocket className="h-6 w-6 text-primary" />
-            </div>
             <h1 className="text-4xl font-bold tracking-tight">
-              Verse &mdash; Deploy your Story in Seconds
+              Verse
             </h1>
             <p className="text-muted-foreground">Built by Sugoto Basu</p>
             <p className="text-muted-foreground/60 text-sm pt-2">
@@ -556,11 +621,11 @@ export default function Home() {
           <LiveMetrics phaseMetrics={phaseMetrics} elapsedMs={elapsedMs} status={status} />
 
           {/* Preview URL card */}
-          <div className="animate-reveal" data-hidden={!deployPreviewURL ? "true" : undefined}>
+          <div className="animate-reveal" data-hidden={!(deployPreviewURL && status === "deployed") ? "true" : undefined}>
             <div>
               <div className="rounded-xl border border-border/60 bg-card p-5 space-y-3 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-foreground">Deployment</span>
+                  <span className="text-sm font-medium text-foreground">Preview Link</span>
                   <StatusBadge status={status} />
                 </div>
                 <div className="flex items-center gap-2 rounded-lg bg-muted/50 border border-border/40 px-3 py-2.5">
@@ -584,11 +649,11 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Build summary (after deploy) */}
-          {buildSummary && status === "deployed" && <BuildSummaryCard summary={buildSummary} />}
+          {/* Build summary (after deploy) — logs nested inside */}
+          {buildSummary && status === "deployed" && <BuildSummaryCard summary={buildSummary} logs={logs} />}
 
-          {/* Build logs */}
-          <div className="animate-reveal" data-hidden={logs.length === 0 ? "true" : undefined}>
+          {/* Build logs — only shown during active build, before summary is available */}
+          <div className="animate-reveal" data-hidden={logs.length === 0 || (buildSummary && status === "deployed") ? "true" : undefined}>
             <div>
               <div className="rounded-xl border border-border/60 bg-card shadow-sm overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/40 bg-muted/30">
