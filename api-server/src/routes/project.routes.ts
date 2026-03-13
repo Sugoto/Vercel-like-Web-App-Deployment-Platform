@@ -41,10 +41,12 @@ router.post("/projects", deployLimiter, validate(createProjectSchema), async (re
 
   const deployUrl = `${config.DEPLOY_BASE_URL.replace(/\/$/, "")}/${slug}`;
 
-  // Fire-and-forget: build runs in background
-  buildProject(slug, gitURL).catch((err) =>
-    console.error(`Background build error for ${slug}:`, err)
-  );
+  // Delay build start to give the client time to connect via WebSocket
+  setTimeout(() => {
+    buildProject(slug, gitURL).catch((err) =>
+      console.error(`Background build error for ${slug}:`, err)
+    );
+  }, 2000);
 
   res.status(201).json({
     status: "queued",
