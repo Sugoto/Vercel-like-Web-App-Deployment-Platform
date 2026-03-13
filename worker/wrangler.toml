@@ -1,0 +1,8 @@
+name = "verse-proxy"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[vars]
+# Supabase Storage public URL format:
+#   https://<project_ref>.supabase.co/storage/v1/object/public/<bucket>
+STORAGE_BASE_URL = "https://rwgcabbudbdbzvqgxcda.supabase.co/storage/v1/object/public/verse-outputs"
