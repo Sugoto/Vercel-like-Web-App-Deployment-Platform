@@ -3,9 +3,7 @@ import fs from "fs";
 import { mkdtemp, rm } from "fs/promises";
 import os from "os";
 import path from "path";
-import { eq } from "drizzle-orm";
-import { db } from "../db";
-import { projects } from "../db/schema";
+import { queries } from "../db";
 import { config } from "../config";
 import { publishLog } from "./log.service";
 import { uploadDirectory } from "./storage.service";
@@ -109,10 +107,7 @@ async function runBuild(slug: string, gitUrl: string): Promise<void> {
   };
 
   try {
-    db.update(projects)
-      .set({ status: "building" })
-      .where(eq(projects.slug, slug))
-      .run();
+    queries.updateStatus.run("building", slug);
 
     log("Build started...");
 
@@ -181,17 +176,14 @@ async function runBuild(slug: string, gitUrl: string): Promise<void> {
     const deployUrl = `${config.DEPLOY_BASE_URL.replace(/\/$/, "")}/${slug}`;
     const screenshotUrl = `https://image.thum.io/get/width/1280/crop/720/${deployUrl}`;
 
-    db.update(projects)
-      .set({
-        status: "deployed",
-        buildDurationMs,
-        totalFiles: uploadResult.totalFiles,
-        totalSizeBytes: uploadResult.totalSizeBytes,
-        buildLog: JSON.stringify(logLines),
-        screenshotUrl,
-      })
-      .where(eq(projects.slug, slug))
-      .run();
+    queries.updateDeployed.run(
+      buildDurationMs,
+      uploadResult.totalFiles,
+      uploadResult.totalSizeBytes,
+      JSON.stringify(logLines),
+      screenshotUrl,
+      slug
+    );
 
     publishEvent(slug, { type: "screenshot", url: screenshotUrl });
 
@@ -202,14 +194,7 @@ async function runBuild(slug: string, gitUrl: string): Promise<void> {
 
     const buildDurationMs = Date.now() - buildStartTime;
 
-    db.update(projects)
-      .set({
-        status: "failed",
-        buildDurationMs,
-        buildLog: JSON.stringify(logLines),
-      })
-      .where(eq(projects.slug, slug))
-      .run();
+    queries.updateFailed.run(buildDurationMs, JSON.stringify(logLines), slug);
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     buildInProgress = false;

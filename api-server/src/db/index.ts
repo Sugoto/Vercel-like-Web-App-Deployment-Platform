@@ -1,10 +1,21 @@
 import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import * as schema from "./schema";
 
-const sqlite = new Database("verse.db");
+export interface Project {
+  id: number;
+  slug: string;
+  git_url: string;
+  status: "queued" | "building" | "deployed" | "failed";
+  created_at: number;
+  build_duration_ms: number | null;
+  total_files: number | null;
+  total_size_bytes: number | null;
+  build_log: string | null;
+  screenshot_url: string | null;
+}
 
-sqlite.exec(`
+export const db = new Database("verse.db");
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT NOT NULL UNIQUE,
@@ -29,8 +40,23 @@ const newColumns = [
 
 for (const col of newColumns) {
   try {
-    sqlite.exec(`ALTER TABLE projects ADD COLUMN ${col}`);
+    db.exec(`ALTER TABLE projects ADD COLUMN ${col}`);
   } catch {}
 }
 
-export const db = drizzle(sqlite, { schema });
+export const queries = {
+  getBySlug: db.query<Project, [string]>("SELECT * FROM projects WHERE slug = ?"),
+  getAll: db.query<Project, []>("SELECT * FROM projects ORDER BY created_at DESC LIMIT 50"),
+  insert: db.query<Project, [string, string, string, number]>(
+    "INSERT INTO projects (slug, git_url, status, created_at) VALUES (?, ?, ?, ?) RETURNING *"
+  ),
+  updateStatus: db.query<null, [string, string]>(
+    "UPDATE projects SET status = ? WHERE slug = ?"
+  ),
+  updateDeployed: db.query<null, [number, number, number, string, string, string]>(
+    "UPDATE projects SET status = 'deployed', build_duration_ms = ?, total_files = ?, total_size_bytes = ?, build_log = ?, screenshot_url = ? WHERE slug = ?"
+  ),
+  updateFailed: db.query<null, [number, string, string]>(
+    "UPDATE projects SET status = 'failed', build_duration_ms = ?, build_log = ? WHERE slug = ?"
+  ),
+};
