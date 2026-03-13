@@ -62,13 +62,23 @@ function runCommand(
   });
 }
 
-const BUILD_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+function publishEvent(slug: string, event: Record<string, unknown>) {
+  publishLog(slug, JSON.stringify(event));
+}
+
+const BUILD_TIMEOUT = 5 * 60 * 1000;
 
 export async function buildProject(slug: string, gitUrl: string): Promise<void> {
   buildInProgress = true;
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), `verse-${slug}-`));
+  const buildStartTime = Date.now();
+  const logLines: string[] = [];
+  const phases: { name: string; durationMs: number }[] = [];
 
-  const log = (msg: string) => publishLog(slug, msg);
+  const log = (msg: string) => {
+    logLines.push(msg);
+    publishLog(slug, msg);
+  };
 
   try {
     db.update(projects)
@@ -78,11 +88,18 @@ export async function buildProject(slug: string, gitUrl: string): Promise<void> 
 
     log("Build started...");
 
+    // Clone
+    let phaseStart = Date.now();
     log("Cloning repository...");
     await runCommand("git", ["clone", "--depth", "1", gitUrl, tmpDir], log, {
       timeout: BUILD_TIMEOUT,
     });
+    let phaseDuration = Date.now() - phaseStart;
+    phases.push({ name: "clone", durationMs: phaseDuration });
+    publishEvent(slug, { type: "metric", phase: "clone", durationMs: phaseDuration });
 
+    // Install
+    phaseStart = Date.now();
     log("Installing dependencies...");
     try {
       await runCommand("npm", ["install"], log, {
@@ -96,12 +113,20 @@ export async function buildProject(slug: string, gitUrl: string): Promise<void> 
         timeout: BUILD_TIMEOUT,
       });
     }
+    phaseDuration = Date.now() - phaseStart;
+    phases.push({ name: "install", durationMs: phaseDuration });
+    publishEvent(slug, { type: "metric", phase: "install", durationMs: phaseDuration });
 
+    // Build
+    phaseStart = Date.now();
     log("Building project...");
     await runCommand("npm", ["run", "build"], log, {
       cwd: tmpDir,
       timeout: BUILD_TIMEOUT,
     });
+    phaseDuration = Date.now() - phaseStart;
+    phases.push({ name: "build", durationMs: phaseDuration });
+    publishEvent(slug, { type: "metric", phase: "build", durationMs: phaseDuration });
 
     const outputDir = detectOutputDir(tmpDir);
     if (!outputDir) {
@@ -110,11 +135,33 @@ export async function buildProject(slug: string, gitUrl: string): Promise<void> 
       );
     }
 
+    // Upload
+    phaseStart = Date.now();
     log(`Found output in ${path.basename(outputDir)}/`);
-    await uploadDirectory(outputDir, slug, log);
+    const uploadResult = await uploadDirectory(outputDir, slug, log);
+    phaseDuration = Date.now() - phaseStart;
+    phases.push({ name: "upload", durationMs: phaseDuration });
+    publishEvent(slug, { type: "metric", phase: "upload", durationMs: phaseDuration });
+
+    const buildDurationMs = Date.now() - buildStartTime;
+
+    publishEvent(slug, {
+      type: "summary",
+      totalFiles: uploadResult.totalFiles,
+      totalSizeBytes: uploadResult.totalSizeBytes,
+      buildDurationMs,
+      phases,
+      files: uploadResult.files,
+    });
 
     db.update(projects)
-      .set({ status: "deployed" })
+      .set({
+        status: "deployed",
+        buildDurationMs,
+        totalFiles: uploadResult.totalFiles,
+        totalSizeBytes: uploadResult.totalSizeBytes,
+        buildLog: JSON.stringify(logLines),
+      })
       .where(eq(projects.slug, slug))
       .run();
 
@@ -123,8 +170,14 @@ export async function buildProject(slug: string, gitUrl: string): Promise<void> 
     const message = err instanceof Error ? err.message : String(err);
     log(`Build failed: ${message}`);
 
+    const buildDurationMs = Date.now() - buildStartTime;
+
     db.update(projects)
-      .set({ status: "failed" })
+      .set({
+        status: "failed",
+        buildDurationMs,
+        buildLog: JSON.stringify(logLines),
+      })
       .where(eq(projects.slug, slug))
       .run();
   } finally {

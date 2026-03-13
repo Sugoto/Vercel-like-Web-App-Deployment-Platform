@@ -12,6 +12,12 @@ const storageClient = new StorageClient(
   }
 );
 
+export interface UploadResult {
+  totalFiles: number;
+  totalSizeBytes: number;
+  files: { path: string; sizeBytes: number }[];
+}
+
 function getAllFiles(dirPath: string): string[] {
   const results: string[] = [];
 
@@ -35,15 +41,19 @@ export async function uploadDirectory(
   dirPath: string,
   slug: string,
   onLog: (msg: string) => void
-): Promise<void> {
-  const files = getAllFiles(dirPath);
-  onLog(`Uploading ${files.length} files...`);
+): Promise<UploadResult> {
+  const filePaths = getAllFiles(dirPath);
+  onLog(`Uploading ${filePaths.length} files...`);
 
-  for (const filePath of files) {
+  let totalSizeBytes = 0;
+  const files: { path: string; sizeBytes: number }[] = [];
+
+  for (const filePath of filePaths) {
     const relativePath = path.relative(dirPath, filePath);
     const key = `__outputs/${slug}/${relativePath}`;
     const contentType = mime.lookup(filePath) || "application/octet-stream";
     const fileBuffer = fs.readFileSync(filePath);
+    const sizeBytes = fileBuffer.length;
 
     const { error } = await storageClient
       .from(config.SUPABASE_BUCKET)
@@ -56,6 +66,10 @@ export async function uploadDirectory(
       throw new Error(`Failed to upload ${relativePath}: ${error.message}`);
     }
 
+    totalSizeBytes += sizeBytes;
+    files.push({ path: relativePath, sizeBytes });
     onLog(`Uploaded ${relativePath}`);
   }
+
+  return { totalFiles: filePaths.length, totalSizeBytes, files };
 }
