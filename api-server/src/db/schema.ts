@@ -12,6 +12,7 @@ export const projects = sqliteTable("projects", {
   totalFiles: integer("total_files"),
   totalSizeBytes: integer("total_size_bytes"),
   buildLog: text("build_log"),
+  screenshotUrl: text("screenshot_url"),
 });
 
 export type Project = typeof projects.$inferSelect;

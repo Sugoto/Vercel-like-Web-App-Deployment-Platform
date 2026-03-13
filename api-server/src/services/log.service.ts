@@ -20,6 +20,11 @@ export function initRedis(io: SocketIOServer) {
   console.log("Redis pub/sub initialized");
 }
 
+export function disconnectRedis() {
+  publisher?.disconnect();
+  subscriber?.disconnect();
+}
+
 export function publishLog(projectSlug: string, log: string) {
   const channel = `logs:${projectSlug}`;
   publisher.publish(channel, JSON.stringify({ log }));

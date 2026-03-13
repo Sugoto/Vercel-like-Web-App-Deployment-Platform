@@ -6,20 +6,12 @@ import { projects } from "../db/schema";
 import { config } from "../config";
 import { validate, createProjectSchema } from "../middleware/validate";
 import { deployLimiter } from "../middleware/rate-limit";
-import { buildProject, isBuildInProgress } from "../services/build.service";
+import { enqueueBuild, getQueueLength } from "../services/build.service";
 
 const router = Router();
 
 router.post("/projects", deployLimiter, validate(createProjectSchema), async (req, res) => {
   const { gitURL, slug: requestedSlug } = req.body;
-
-  if (isBuildInProgress()) {
-    res.status(503).json({
-      error: "Server is busy with another build. Please try again in a few minutes.",
-    });
-    return;
-  }
-
   const slug = requestedSlug || generateSlug();
 
   const existing = db.select().from(projects).where(eq(projects.slug, slug)).get();
@@ -40,12 +32,11 @@ router.post("/projects", deployLimiter, validate(createProjectSchema), async (re
     .get();
 
   const deployUrl = `${config.DEPLOY_BASE_URL.replace(/\/$/, "")}/${slug}`;
+  const queuePosition = getQueueLength() + 1;
 
   // Delay build start to give the client time to connect via WebSocket
   setTimeout(() => {
-    buildProject(slug, gitURL).catch((err) =>
-      console.error(`Background build error for ${slug}:`, err)
-    );
+    enqueueBuild(slug, gitURL);
   }, 2000);
 
   res.status(201).json({
@@ -53,6 +44,7 @@ router.post("/projects", deployLimiter, validate(createProjectSchema), async (re
     data: {
       projectSlug: project.slug,
       url: deployUrl,
+      queuePosition,
     },
   });
 });

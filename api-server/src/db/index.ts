@@ -14,7 +14,8 @@ sqlite.exec(`
     build_duration_ms INTEGER,
     total_files INTEGER,
     total_size_bytes INTEGER,
-    build_log TEXT
+    build_log TEXT,
+    screenshot_url TEXT
   )
 `);
 
@@ -23,6 +24,7 @@ const newColumns = [
   "total_files INTEGER",
   "total_size_bytes INTEGER",
   "build_log TEXT",
+  "screenshot_url TEXT",
 ];
 
 for (const col of newColumns) {
