@@ -1,6 +1,5 @@
 "use client";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { io, Socket } from "socket.io-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -23,7 +22,6 @@ import {
 } from "lucide-react";
 import { Fira_Code, Inter } from "next/font/google";
 import Link from "next/link";
-import axios from "axios";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001";
 
@@ -400,64 +398,45 @@ function StatusBadge({ status }: { status: DeployStatus }) {
 
 // --- Main Page ---
 
-interface PersistedState {
-  repoURL: string;
-  logs: string[];
-  status: DeployStatus;
-  deployPreviewURL?: string;
-  phaseMetrics: PhaseMetric[];
-  buildSummary: BuildSummary | null;
-  elapsedMs: number;
-  screenshotUrl?: string;
-}
-
-function loadPersistedState(): PersistedState | null {
+function getProjectSlugFromURL(): string | null {
   if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem("verse-deploy-state");
-    if (!raw) return null;
-    const state = JSON.parse(raw) as PersistedState;
-    if (state.status === "deployed" || state.status === "failed") return state;
-    return null;
-  } catch {
-    return null;
-  }
+  const params = new URLSearchParams(window.location.search);
+  return params.get("project");
 }
 
-function persistState(state: PersistedState) {
-  try {
-    localStorage.setItem("verse-deploy-state", JSON.stringify(state));
-  } catch {}
+function setProjectSlugInURL(slug: string) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("project", slug);
+  window.history.replaceState({}, "", url.toString());
 }
 
 export default function Home() {
-  const saved = useRef(loadPersistedState());
-
-  const [repoURL, setURL] = useState(saved.current?.repoURL || "");
-  const [logs, setLogs] = useState<string[]>(saved.current?.logs || []);
-  const [status, setStatus] = useState<DeployStatus>(saved.current?.status || "idle");
-  const [deployPreviewURL, setDeployPreviewURL] = useState<string | undefined>(saved.current?.deployPreviewURL);
+  const [repoURL, setURL] = useState("");
+  const [logs, setLogs] = useState<string[]>([]);
+  const [status, setStatus] = useState<DeployStatus>("idle");
+  const [deployPreviewURL, setDeployPreviewURL] = useState<string>();
   const [error, setError] = useState<string>();
   const [copied, setCopied] = useState(false);
   const [deployments, setDeployments] = useState<
     { slug: string; gitUrl: string; status: string; createdAt: string; buildDurationMs?: number; totalSizeBytes?: number }[]
   >([]);
-  const [phaseMetrics, setPhaseMetrics] = useState<PhaseMetric[]>(saved.current?.phaseMetrics || []);
-  const [buildSummary, setBuildSummary] = useState<BuildSummary | null>(saved.current?.buildSummary || null);
-  const [elapsedMs, setElapsedMs] = useState(saved.current?.elapsedMs || 0);
+  const [phaseMetrics, setPhaseMetrics] = useState<PhaseMetric[]>([]);
+  const [buildSummary, setBuildSummary] = useState<BuildSummary | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const [buildStartTime, setBuildStartTime] = useState<number | null>(null);
-  const [screenshotUrl, setScreenshotUrl] = useState<string | undefined>(saved.current?.screenshotUrl);
+  const [screenshotUrl, setScreenshotUrl] = useState<string>();
 
   const logEndRef = useRef<HTMLDivElement>(null);
-  const socketRef = useRef<Socket | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isValidURL = GITHUB_REGEX.test(repoURL.trim());
 
   const fetchDeployments = useCallback(async () => {
     try {
-      const { data } = await axios.get(`${API_URL}/projects`);
-      if (data?.data) setDeployments(data.data);
+      const res = await fetch(`${API_URL}/projects`);
+      const json = await res.json();
+      if (json?.data) setDeployments(json.data);
     } catch {}
   }, []);
 
@@ -487,8 +466,8 @@ export default function Home() {
         if (log === "Done") {
           setStatus("deployed");
           if (timerRef.current) clearInterval(timerRef.current);
-          socketRef.current?.disconnect();
-          socketRef.current = null;
+          wsRef.current?.close();
+          wsRef.current = null;
           return;
         }
         if (log.startsWith("Build failed")) {
@@ -520,36 +499,53 @@ export default function Home() {
     }, 100);
 
     try {
-      const { data } = await axios.post(`${API_URL}/projects`, {
-        gitURL: repoURL.trim(),
+      const res = await fetch(`${API_URL}/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gitURL: repoURL.trim() }),
       });
+      const json = await res.json();
 
-      if (data?.data) {
-        const { projectSlug, url } = data.data;
+      if (!res.ok) {
+        throw new Error(json.error || `Request failed (${res.status})`);
+      }
+
+      if (json?.data) {
+        const { projectSlug, url } = json.data;
         setDeployPreviewURL(url);
+        setProjectSlugInURL(projectSlug);
 
-        const socket = io(API_URL, {
-          transports: ["websocket", "polling"],
-          reconnection: true,
-          reconnectionAttempts: 10,
-          reconnectionDelay: 1000,
-          reconnectionDelayMax: 5000,
-        });
-        socketRef.current = socket;
+        const wsUrl = API_URL.replace(/^http/, "ws") + "/ws";
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
 
-        socket.on("connect", () => {
-          socket.emit("subscribe", `logs:${projectSlug}`);
-        });
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: "subscribe", channel: `logs:${projectSlug}` }));
+        };
 
-        socket.on("message", handleSocketMessage);
+        ws.onmessage = (event) => {
+          handleSocketMessage(String(event.data));
+        };
+
+        ws.onclose = () => {
+          // Auto-reconnect if build is still in progress
+          if (wsRef.current === ws) {
+            setTimeout(() => {
+              const newWs = new WebSocket(wsUrl);
+              wsRef.current = newWs;
+              newWs.onopen = () => {
+                newWs.send(JSON.stringify({ type: "subscribe", channel: `logs:${projectSlug}` }));
+              };
+              newWs.onmessage = (event) => {
+                handleSocketMessage(String(event.data));
+              };
+            }, 1000);
+          }
+        };
       }
     } catch (err) {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || err.message);
-      } else {
-        setError("Something went wrong. Please try again.");
-      }
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
       setStatus("idle");
     }
   }, [repoURL, handleSocketMessage]);
@@ -562,10 +558,44 @@ export default function Home() {
     }
   }, [deployPreviewURL]);
 
+  // Restore state from URL query param on mount
   useEffect(() => {
+    const slug = getProjectSlugFromURL();
+    if (slug) {
+      fetch(`${API_URL}/projects/${slug}`)
+        .then((res) => res.json())
+        .then((json) => {
+          if (json?.data) {
+            const p = json.data;
+            setURL(p.gitUrl || "");
+            setStatus(p.status === "deployed" ? "deployed" : p.status === "failed" ? "failed" : "idle");
+            setDeployPreviewURL(
+              p.status === "deployed"
+                ? `${process.env.NEXT_PUBLIC_DEPLOY_BASE_URL || "https://verse-proxy.sugotobasu1.workers.dev"}/${p.slug}`
+                : undefined
+            );
+            setScreenshotUrl(p.screenshotUrl || undefined);
+            if (p.buildDurationMs) setElapsedMs(p.buildDurationMs);
+            if (p.buildLog) {
+              try { setLogs(JSON.parse(p.buildLog)); } catch {}
+            }
+            if (p.buildDurationMs && p.totalFiles != null && p.totalSizeBytes != null) {
+              setBuildSummary({
+                buildDurationMs: p.buildDurationMs,
+                totalFiles: p.totalFiles,
+                totalSizeBytes: p.totalSizeBytes,
+                phases: [],
+                files: [],
+              });
+            }
+          }
+        })
+        .catch(() => {});
+    }
     fetchDeployments();
     return () => {
-      socketRef.current?.disconnect();
+      wsRef.current?.close();
+      wsRef.current = null;
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [fetchDeployments]);
@@ -573,9 +603,8 @@ export default function Home() {
   useEffect(() => {
     if (status === "deployed" || status === "failed") {
       fetchDeployments();
-      persistState({ repoURL, logs, status, deployPreviewURL, phaseMetrics, buildSummary, elapsedMs, screenshotUrl });
     }
-  }, [status, fetchDeployments, repoURL, logs, deployPreviewURL, phaseMetrics, buildSummary, elapsedMs, screenshotUrl]);
+  }, [status, fetchDeployments]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });

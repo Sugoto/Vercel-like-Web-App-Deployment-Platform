@@ -1,17 +1,11 @@
 import { readFile } from "fs/promises";
 import fs from "fs";
 import path from "path";
-import { StorageClient } from "@supabase/storage-js";
+import { createClient } from "@supabase/supabase-js";
 import { lookup } from "mrmime";
 import { config } from "../config";
 
-const storageClient = new StorageClient(
-  `${config.SUPABASE_URL}/storage/v1`,
-  {
-    apikey: config.SUPABASE_SERVICE_KEY,
-    Authorization: `Bearer ${config.SUPABASE_SERVICE_KEY}`,
-  }
-);
+const supabase = createClient(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY);
 
 export interface UploadResult {
   totalFiles: number;
@@ -63,9 +57,9 @@ export async function uploadDirectory(
         const fileBuffer = await readFile(filePath);
         const sizeBytes = fileBuffer.length;
 
-        const { error } = await storageClient
-          .from(config.SUPABASE_BUCKET)
-          .upload(key, fileBuffer, {
+    const { error } = await supabase.storage
+      .from(config.SUPABASE_BUCKET)
+      .upload(key, fileBuffer, {
             contentType,
             upsert: true,
           });

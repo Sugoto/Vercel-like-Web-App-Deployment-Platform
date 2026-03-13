@@ -3,7 +3,7 @@ import fs from "fs";
 import { mkdtemp, rm } from "fs/promises";
 import os from "os";
 import path from "path";
-import { queries } from "../db";
+import { db } from "../db";
 import { config } from "../config";
 import { publishLog } from "./log.service";
 import { uploadDirectory } from "./storage.service";
@@ -107,7 +107,7 @@ async function runBuild(slug: string, gitUrl: string): Promise<void> {
   };
 
   try {
-    queries.updateStatus.run("building", slug);
+    await db.updateStatus(slug, "building");
 
     log("Build started...");
 
@@ -176,13 +176,13 @@ async function runBuild(slug: string, gitUrl: string): Promise<void> {
     const deployUrl = `${config.DEPLOY_BASE_URL.replace(/\/$/, "")}/${slug}`;
     const screenshotUrl = `https://image.thum.io/get/width/1280/crop/720/${deployUrl}`;
 
-    queries.updateDeployed.run(
+    await db.updateDeployed(
+      slug,
       buildDurationMs,
       uploadResult.totalFiles,
       uploadResult.totalSizeBytes,
       JSON.stringify(logLines),
-      screenshotUrl,
-      slug
+      screenshotUrl
     );
 
     publishEvent(slug, { type: "screenshot", url: screenshotUrl });
@@ -194,7 +194,7 @@ async function runBuild(slug: string, gitUrl: string): Promise<void> {
 
     const buildDurationMs = Date.now() - buildStartTime;
 
-    queries.updateFailed.run(buildDurationMs, JSON.stringify(logLines), slug);
+    await db.updateFailed(slug, buildDurationMs, JSON.stringify(logLines));
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     buildInProgress = false;
