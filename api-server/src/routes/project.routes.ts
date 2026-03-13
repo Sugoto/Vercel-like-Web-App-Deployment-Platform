@@ -1,0 +1,84 @@
+import { Router } from "express";
+import { eq, desc } from "drizzle-orm";
+import { generateSlug } from "random-word-slugs";
+import { db } from "../db";
+import { projects } from "../db/schema";
+import { config } from "../config";
+import { validate, createProjectSchema } from "../middleware/validate";
+import { deployLimiter } from "../middleware/rate-limit";
+import { buildProject, isBuildInProgress } from "../services/build.service";
+
+const router = Router();
+
+router.post("/projects", deployLimiter, validate(createProjectSchema), async (req, res) => {
+  const { gitURL, slug: requestedSlug } = req.body;
+
+  if (isBuildInProgress()) {
+    res.status(503).json({
+      error: "Server is busy with another build. Please try again in a few minutes.",
+    });
+    return;
+  }
+
+  const slug = requestedSlug || generateSlug();
+
+  const existing = db.select().from(projects).where(eq(projects.slug, slug)).get();
+  if (existing) {
+    res.status(409).json({ error: `Slug "${slug}" is already taken.` });
+    return;
+  }
+
+  const project = db
+    .insert(projects)
+    .values({
+      slug,
+      gitUrl: gitURL,
+      status: "queued",
+      createdAt: new Date(),
+    })
+    .returning()
+    .get();
+
+  const deployUrl = `${config.DEPLOY_BASE_URL.replace(/\/$/, "")}/${slug}`;
+
+  // Fire-and-forget: build runs in background
+  buildProject(slug, gitURL).catch((err) =>
+    console.error(`Background build error for ${slug}:`, err)
+  );
+
+  res.status(201).json({
+    status: "queued",
+    data: {
+      projectSlug: project.slug,
+      url: deployUrl,
+    },
+  });
+});
+
+router.get("/projects", async (_req, res) => {
+  const allProjects = db
+    .select()
+    .from(projects)
+    .orderBy(desc(projects.createdAt))
+    .limit(50)
+    .all();
+
+  res.json({ data: allProjects });
+});
+
+router.get("/projects/:slug", async (req, res) => {
+  const project = db
+    .select()
+    .from(projects)
+    .where(eq(projects.slug, req.params.slug))
+    .get();
+
+  if (!project) {
+    res.status(404).json({ error: "Project not found" });
+    return;
+  }
+
+  res.json({ data: project });
+});
+
+export default router;
