@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@supabase/storage-js": "^2.7.0",
@@ -15,8 +16,11 @@
     "drizzle-orm": "^0.45.0",
     "express": "^5.1.0",
     "express-rate-limit": "^8.3.0",
+    "helmet": "^8.1.0",
     "ioredis": "^5.10.0",
-    "mime-types": "^3.0.0",
+    "mrmime": "^2.0.0",
+    "pino": "^9.6.0",
+    "pino-http": "^10.4.0",
     "random-word-slugs": "^0.1.7",
     "socket.io": "^4.8.0",
     "tsx": "^4.19.0",
@@ -26,7 +30,6 @@
     "@types/better-sqlite3": "^7.6.0",
     "@types/cors": "^2.8.0",
     "@types/express": "^5.0.6",
-    "@types/mime-types": "^3.0.1",
     "@types/node": "^25.0.0",
     "drizzle-kit": "^0.31.0",
     "typescript": "^5.9.0"

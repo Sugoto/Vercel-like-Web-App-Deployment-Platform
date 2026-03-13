@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -135,7 +135,7 @@ function getNodeState(nodeId: string, phase: InfraPhase): "idle" | "active" | "d
   return "idle";
 }
 
-function InfraPipeline({ logs, status, phaseMetrics }: { logs: string[]; status: DeployStatus; phaseMetrics: PhaseMetric[] }) {
+const InfraPipeline = React.memo(function InfraPipeline({ logs, status, phaseMetrics }: { logs: string[]; status: DeployStatus; phaseMetrics: PhaseMetric[] }) {
   const phase = derivePhase(logs, status);
 
   return (
@@ -204,11 +204,11 @@ function InfraPipeline({ logs, status, phaseMetrics }: { logs: string[]; status:
       </div>
     </aside>
   );
-}
+});
 
 // --- Live Metrics Bar ---
 
-function LiveMetrics({ phaseMetrics, elapsedMs, status }: { phaseMetrics: PhaseMetric[]; elapsedMs: number; status: DeployStatus }) {
+const LiveMetrics = React.memo(function LiveMetrics({ phaseMetrics, elapsedMs, status }: { phaseMetrics: PhaseMetric[]; elapsedMs: number; status: DeployStatus }) {
   if (status === "idle") return null;
 
   return (
@@ -227,11 +227,11 @@ function LiveMetrics({ phaseMetrics, elapsedMs, status }: { phaseMetrics: PhaseM
       {status === "deploying" && <Loader2 className="h-3 w-3 animate-spin text-amber-400 ml-auto" />}
     </div>
   );
-}
+});
 
 // --- Build Summary Card ---
 
-function BuildSummaryCard({ summary, logs }: { summary: BuildSummary; logs: string[] }) {
+function BuildSummaryCard({ summary, logs, screenshotUrl }: { summary: BuildSummary; logs: string[]; screenshotUrl?: string }) {
   const [showFiles, setShowFiles] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const totalPhaseMs = summary.phases.reduce((sum, p) => sum + p.durationMs, 0);
@@ -266,6 +266,18 @@ function BuildSummaryCard({ summary, logs }: { summary: BuildSummary; logs: stri
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">Size</p>
           </div>
         </div>
+
+        {/* Screenshot preview */}
+        {screenshotUrl && (
+          <div className="rounded-lg overflow-hidden border border-border/30">
+            <img
+              src={screenshotUrl}
+              alt="Deployment preview"
+              className="w-full h-auto"
+              loading="lazy"
+            />
+          </div>
+        )}
 
         {/* Phase breakdown bar */}
         <div>
@@ -396,6 +408,7 @@ interface PersistedState {
   phaseMetrics: PhaseMetric[];
   buildSummary: BuildSummary | null;
   elapsedMs: number;
+  screenshotUrl?: string;
 }
 
 function loadPersistedState(): PersistedState | null {
@@ -433,6 +446,7 @@ export default function Home() {
   const [buildSummary, setBuildSummary] = useState<BuildSummary | null>(saved.current?.buildSummary || null);
   const [elapsedMs, setElapsedMs] = useState(saved.current?.elapsedMs || 0);
   const [buildStartTime, setBuildStartTime] = useState<number | null>(null);
+  const [screenshotUrl, setScreenshotUrl] = useState<string | undefined>(saved.current?.screenshotUrl);
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -464,6 +478,10 @@ export default function Home() {
             setBuildSummary(event as BuildSummary);
             return;
           }
+          if (event.type === "screenshot") {
+            setScreenshotUrl(event.url as string);
+            return;
+          }
         } catch {}
 
         if (log === "Done") {
@@ -492,6 +510,7 @@ export default function Home() {
     setCopied(false);
     setPhaseMetrics([]);
     setBuildSummary(null);
+    setScreenshotUrl(undefined);
     setElapsedMs(0);
     const startTime = Date.now();
     setBuildStartTime(startTime);
@@ -509,7 +528,13 @@ export default function Home() {
         const { projectSlug, url } = data.data;
         setDeployPreviewURL(url);
 
-        const socket = io(API_URL, { transports: ["websocket", "polling"] });
+        const socket = io(API_URL, {
+          transports: ["websocket", "polling"],
+          reconnection: true,
+          reconnectionAttempts: 10,
+          reconnectionDelay: 1000,
+          reconnectionDelayMax: 5000,
+        });
         socketRef.current = socket;
 
         socket.on("connect", () => {
@@ -548,9 +573,9 @@ export default function Home() {
   useEffect(() => {
     if (status === "deployed" || status === "failed") {
       fetchDeployments();
-      persistState({ repoURL, logs, status, deployPreviewURL, phaseMetrics, buildSummary, elapsedMs });
+      persistState({ repoURL, logs, status, deployPreviewURL, phaseMetrics, buildSummary, elapsedMs, screenshotUrl });
     }
-  }, [status, fetchDeployments, repoURL, logs, deployPreviewURL, phaseMetrics, buildSummary, elapsedMs]);
+  }, [status, fetchDeployments, repoURL, logs, deployPreviewURL, phaseMetrics, buildSummary, elapsedMs, screenshotUrl]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -650,7 +675,7 @@ export default function Home() {
           </div>
 
           {/* Build summary (after deploy) — logs nested inside */}
-          {buildSummary && status === "deployed" && <BuildSummaryCard summary={buildSummary} logs={logs} />}
+          {buildSummary && status === "deployed" && <BuildSummaryCard summary={buildSummary} logs={logs} screenshotUrl={screenshotUrl} />}
 
           {/* Build logs — only shown during active build, before summary is available */}
           <div className="animate-reveal" data-hidden={logs.length === 0 || (buildSummary && status === "deployed") ? "true" : undefined}>

@@ -19,6 +19,7 @@ const MIME_TYPES: Record<string, string> = {
   jpeg: "image/jpeg",
   gif: "image/gif",
   webp: "image/webp",
+  avif: "image/avif",
   ico: "image/x-icon",
   woff: "font/woff",
   woff2: "font/woff2",
@@ -26,14 +27,16 @@ const MIME_TYPES: Record<string, string> = {
   otf: "font/otf",
   txt: "text/plain; charset=utf-8",
   xml: "application/xml",
+  webmanifest: "application/manifest+json",
   wasm: "application/wasm",
+  map: "application/json",
   mp4: "video/mp4",
   webm: "video/webm",
   mp3: "audio/mpeg",
 };
 
-function getMimeType(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() || "";
+function getMimeType(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
   return MIME_TYPES[ext] || "application/octet-stream";
 }
 
@@ -45,11 +48,31 @@ function rewriteHtmlPaths(html: string, slug: string): string {
     .replaceAll("href='/", `href='/${slug}/`);
 }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const pathSegments = url.pathname.split("/").filter(Boolean);
+function hasContentHash(fileName: string): boolean {
+  return /[-_.][a-f0-9]{8,}\./.test(fileName);
+}
 
+function getCacheControl(filePath: string): string {
+  if (filePath.endsWith(".html")) {
+    return "public, max-age=60, s-maxage=300";
+  }
+  if (hasContentHash(filePath)) {
+    return "public, max-age=31536000, immutable";
+  }
+  return "public, max-age=3600";
+}
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    const cacheKey = new Request(url.toString(), request);
+    const cache = (caches as unknown as { default: Cache }).default;
+
+    // Check edge cache first
+    const cachedResponse = await cache.match(cacheKey);
+    if (cachedResponse) return cachedResponse;
+
+    const pathSegments = url.pathname.split("/").filter(Boolean);
     const slug = pathSegments[0];
 
     if (!slug) {
@@ -81,16 +104,26 @@ export default {
     }
 
     const contentType = getMimeType(servingFile);
+    const cacheControl = getCacheControl(servingFile);
     const headers = new Headers();
     headers.set("content-type", contentType);
-    headers.set("cache-control", "public, max-age=3600");
+    headers.set("cache-control", cacheControl);
+
+    let finalResponse: Response;
 
     if (servingFile.endsWith(".html")) {
       const html = await response.text();
       const rewritten = rewriteHtmlPaths(html, slug);
-      return new Response(rewritten, { status: 200, headers });
+      finalResponse = new Response(rewritten, { status: 200, headers });
+    } else {
+      finalResponse = new Response(response.body, { status: 200, headers });
     }
 
-    return new Response(response.body, { status: 200, headers });
+    // Store in edge cache (don't await -- fire and forget)
+    if (!servingFile.endsWith(".html")) {
+      ctx.waitUntil(cache.put(cacheKey, finalResponse.clone()));
+    }
+
+    return finalResponse;
   },
 };

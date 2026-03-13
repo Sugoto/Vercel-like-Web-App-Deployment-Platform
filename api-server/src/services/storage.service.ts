@@ -1,7 +1,8 @@
+import { readFile } from "fs/promises";
 import fs from "fs";
 import path from "path";
 import { StorageClient } from "@supabase/storage-js";
-import mime from "mime-types";
+import { lookup } from "mrmime";
 import { config } from "../config";
 
 const storageClient = new StorageClient(
@@ -37,6 +38,8 @@ function getAllFiles(dirPath: string): string[] {
   return results;
 }
 
+const UPLOAD_CONCURRENCY = 5;
+
 export async function uploadDirectory(
   dirPath: string,
   slug: string,
@@ -48,27 +51,38 @@ export async function uploadDirectory(
   let totalSizeBytes = 0;
   const files: { path: string; sizeBytes: number }[] = [];
 
-  for (const filePath of filePaths) {
-    const relativePath = path.relative(dirPath, filePath);
-    const key = `__outputs/${slug}/${relativePath}`;
-    const contentType = mime.lookup(filePath) || "application/octet-stream";
-    const fileBuffer = fs.readFileSync(filePath);
-    const sizeBytes = fileBuffer.length;
+  // Process uploads in parallel batches
+  for (let i = 0; i < filePaths.length; i += UPLOAD_CONCURRENCY) {
+    const batch = filePaths.slice(i, i + UPLOAD_CONCURRENCY);
 
-    const { error } = await storageClient
-      .from(config.SUPABASE_BUCKET)
-      .upload(key, fileBuffer, {
-        contentType,
-        upsert: true,
-      });
+    const results = await Promise.all(
+      batch.map(async (filePath) => {
+        const relativePath = path.relative(dirPath, filePath);
+        const key = `__outputs/${slug}/${relativePath}`;
+        const contentType = lookup(filePath) || "application/octet-stream";
+        const fileBuffer = await readFile(filePath);
+        const sizeBytes = fileBuffer.length;
 
-    if (error) {
-      throw new Error(`Failed to upload ${relativePath}: ${error.message}`);
+        const { error } = await storageClient
+          .from(config.SUPABASE_BUCKET)
+          .upload(key, fileBuffer, {
+            contentType,
+            upsert: true,
+          });
+
+        if (error) {
+          throw new Error(`Failed to upload ${relativePath}: ${error.message}`);
+        }
+
+        onLog(`Uploaded ${relativePath}`);
+        return { path: relativePath, sizeBytes };
+      })
+    );
+
+    for (const r of results) {
+      totalSizeBytes += r.sizeBytes;
+      files.push(r);
     }
-
-    totalSizeBytes += sizeBytes;
-    files.push({ path: relativePath, sizeBytes });
-    onLog(`Uploaded ${relativePath}`);
   }
 
   return { totalFiles: filePaths.length, totalSizeBytes, files };
