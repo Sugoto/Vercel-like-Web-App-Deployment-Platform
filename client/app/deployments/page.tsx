@@ -16,7 +16,6 @@ import {
   Rocket,
 } from "lucide-react";
 import { Fira_Code, Inter } from "next/font/google";
-import axios from "axios";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001";
 const DEPLOY_BASE_URL =
@@ -176,8 +175,9 @@ export default function DeploymentsPage() {
 
   const fetchDeployments = useCallback(async () => {
     try {
-      const { data } = await axios.get(`${API_URL}/projects`);
-      if (data?.data) setDeployments(data.data);
+      const res = await fetch(`${API_URL}/projects`);
+      const json = await res.json();
+      if (json?.data) setDeployments(json.data);
     } catch {} finally {
       setLoading(false);
     }

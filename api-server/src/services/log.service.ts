@@ -1,11 +1,40 @@
 import Redis from "ioredis";
-import type { Server as SocketIOServer } from "socket.io";
 import { config } from "../config";
+
+interface WsLike {
+  data: { channel?: string };
+  send(data: string): void;
+}
 
 let publisher: Redis;
 let subscriber: Redis;
 
-export function initRedis(io: SocketIOServer) {
+const channels = new Map<string, Set<WsLike>>();
+
+export function subscribeSocket(ws: WsLike, channel: string) {
+  ws.data.channel = channel;
+  if (!channels.has(channel)) {
+    channels.set(channel, new Set());
+  }
+  channels.get(channel)!.add(ws);
+  ws.send(JSON.stringify({ log: `Joined ${channel}` }));
+}
+
+export function unsubscribeSocket(ws: WsLike) {
+  if (ws.data.channel) {
+    channels.get(ws.data.channel)?.delete(ws);
+  }
+}
+
+function broadcastToChannel(channel: string, message: string) {
+  const sockets = channels.get(channel);
+  if (!sockets) return;
+  for (const ws of sockets) {
+    ws.send(message);
+  }
+}
+
+export function initRedis() {
   publisher = new Redis(config.REDIS_URL);
   subscriber = new Redis(config.REDIS_URL);
 
@@ -14,7 +43,7 @@ export function initRedis(io: SocketIOServer) {
 
   subscriber.psubscribe("logs:*");
   subscriber.on("pmessage", (_pattern, channel, message) => {
-    io.to(channel).emit("message", message);
+    broadcastToChannel(channel, message);
   });
 
   console.log("Redis pub/sub initialized");

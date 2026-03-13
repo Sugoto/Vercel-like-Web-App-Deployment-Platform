@@ -5,17 +5,20 @@ import { rateLimiter } from "hono-rate-limiter";
 import { logger } from "hono/logger";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { serve } from "@hono/node-server";
-import { Server as SocketIOServer } from "socket.io";
 import { generateSlug } from "random-word-slugs";
 import { config } from "./config";
-import { queries, type Project } from "./db";
-import { initRedis, disconnectRedis, getRedisStatus } from "./services/log.service";
+import { db, type Project } from "./db";
+import {
+  initRedis,
+  disconnectRedis,
+  getRedisStatus,
+  subscribeSocket,
+  unsubscribeSocket,
+} from "./services/log.service";
 import { enqueueBuild, getQueueLength } from "./services/build.service";
 
 const app = new Hono();
 
-// Middleware
 app.use("*", logger());
 app.use("*", secureHeaders());
 app.use("*", cors({ origin: config.CLIENT_URL }));
@@ -48,7 +51,7 @@ function toApiProject(p: Project) {
     slug: p.slug,
     gitUrl: p.git_url,
     status: p.status,
-    createdAt: new Date(p.created_at).toISOString(),
+    createdAt: p.created_at,
     buildDurationMs: p.build_duration_ms,
     totalFiles: p.total_files,
     totalSizeBytes: p.total_size_bytes,
@@ -57,7 +60,6 @@ function toApiProject(p: Project) {
   };
 }
 
-// Routes
 app.get("/", (c) => c.json({ name: "Verse API", version: "3.0.0" }));
 
 app.get("/health", async (c) => {
@@ -81,12 +83,12 @@ app.post(
     const { gitURL, slug: requestedSlug } = c.req.valid("json");
     const slug = requestedSlug || generateSlug();
 
-    const existing = queries.getBySlug.get(slug);
+    const existing = await db.getBySlug(slug);
     if (existing) {
       return c.json({ error: `Slug "${slug}" is already taken.` }, 409);
     }
 
-    const project = queries.insert.get(slug, gitURL, "queued", Date.now());
+    const project = await db.insert(slug, gitURL, "queued");
     const deployUrl = `${config.DEPLOY_BASE_URL.replace(/\/$/, "")}/${slug}`;
     const queuePosition = getQueueLength() + 1;
 
@@ -101,13 +103,13 @@ app.post(
   }
 );
 
-app.get("/projects", (c) => {
-  const allProjects = queries.getAll.all();
+app.get("/projects", async (c) => {
+  const allProjects = await db.getAll();
   return c.json({ data: allProjects.map(toApiProject) });
 });
 
-app.get("/projects/:slug", (c) => {
-  const project = queries.getBySlug.get(c.req.param("slug"));
+app.get("/projects/:slug", async (c) => {
+  const project = await db.getBySlug(c.req.param("slug"));
   if (!project) {
     return c.json({ error: "Project not found" }, 404);
   }
@@ -119,27 +121,45 @@ app.onError((err, c) => {
   return c.json({ error: "Internal server error" }, 500);
 });
 
-// Serve Hono via Node HTTP server so Socket.IO can attach to same port
-const httpServer = serve({ fetch: app.fetch, port: config.PORT });
+initRedis();
 
-const io = new SocketIOServer(httpServer, {
-  cors: { origin: config.CLIENT_URL, methods: ["GET", "POST"] },
+const server = Bun.serve({
+  port: config.PORT,
+  fetch(req, server) {
+    const url = new URL(req.url);
+
+    if (url.pathname === "/ws") {
+      const origin = req.headers.get("origin") || "";
+      if (config.CLIENT_URL !== "*" && origin !== config.CLIENT_URL) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      if (server.upgrade(req, { data: { channel: undefined } as any })) return;
+      return new Response("WebSocket upgrade failed", { status: 400 });
+    }
+
+    return app.fetch(req, { ip: server.requestIP(req) });
+  },
+  websocket: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    message(ws: any, message: any) {
+      try {
+        const parsed = JSON.parse(String(message));
+        if (parsed.type === "subscribe" && typeof parsed.channel === "string") {
+          subscribeSocket(ws, parsed.channel);
+        }
+      } catch {}
+    },
+    close(ws: any) {
+      unsubscribeSocket(ws);
+    },
+  },
 });
-
-io.on("connection", (socket) => {
-  socket.on("subscribe", (channel: string) => {
-    socket.join(channel);
-    socket.emit("message", JSON.stringify({ log: `Joined ${channel}` }));
-  });
-});
-
-initRedis(io);
 
 console.log(`Verse API running on port ${config.PORT}`);
 
 function gracefulShutdown(signal: string) {
   console.log(`${signal} received, shutting down...`);
-  httpServer.close();
+  server.stop();
   disconnectRedis();
   process.exit(0);
 }
