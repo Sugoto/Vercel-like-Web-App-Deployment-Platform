@@ -20,7 +20,7 @@ import { enqueueBuild, getQueueLength } from "./services/build.service";
 const app = new Hono();
 
 app.use("*", logger());
-app.use("*", secureHeaders());
+app.use("*", secureHeaders({ crossOriginResourcePolicy: "cross-origin" }));
 app.use("*", cors({ origin: config.CLIENT_URL }));
 
 const deployLimiter = rateLimiter({
@@ -57,6 +57,7 @@ function toApiProject(p: Project) {
     totalSizeBytes: p.total_size_bytes,
     buildLog: p.build_log,
     screenshotUrl: p.screenshot_url,
+    shortUrl: p.short_url,
   };
 }
 
@@ -114,6 +115,24 @@ app.get("/projects/:slug", async (c) => {
     return c.json({ error: "Project not found" }, 404);
   }
   return c.json({ data: toApiProject(project) });
+});
+
+app.get("/screenshots/:slug", async (c) => {
+  const project = await db.getBySlug(c.req.param("slug"));
+  if (!project?.screenshot_url) {
+    return c.json({ error: "Screenshot not found" }, 404);
+  }
+  const res = await fetch(project.screenshot_url);
+  if (!res.ok) {
+    return c.json({ error: "Failed to fetch screenshot" }, 502);
+  }
+  return new Response(res.body, {
+    headers: {
+      "content-type": "image/png",
+      "cache-control": "public, max-age=86400",
+      "cross-origin-resource-policy": "cross-origin",
+    },
+  });
 });
 
 app.onError((err, c) => {

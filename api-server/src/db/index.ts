@@ -12,6 +12,7 @@ export interface Project {
   total_size_bytes: number | null;
   build_log: string | null;
   screenshot_url: string | null;
+  short_url: string | null;
 }
 
 const supabase = createClient(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY);
@@ -63,7 +64,8 @@ export const db = {
     totalFiles: number,
     totalSizeBytes: number,
     buildLog: string,
-    screenshotUrl: string
+    screenshotUrl: string,
+    shortUrl: string | null
   ): Promise<void> {
     await supabase
       .from("projects")
@@ -74,6 +76,7 @@ export const db = {
         total_size_bytes: totalSizeBytes,
         build_log: buildLog,
         screenshot_url: screenshotUrl,
+        short_url: shortUrl,
       })
       .eq("slug", slug);
   },

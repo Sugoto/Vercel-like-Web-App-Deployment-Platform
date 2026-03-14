@@ -166,7 +166,20 @@ async function runBuild(slug: string, gitUrl: string): Promise<void> {
     });
 
     const deployUrl = `${config.DEPLOY_BASE_URL.replace(/\/$/, "")}/${slug}`;
-    const screenshotUrl = `https://image.thum.io/get/width/1280/crop/720/${deployUrl}`;
+    const screenshotUrl = `https://pageshot.site/v1/screenshot?url=${encodeURIComponent(deployUrl)}&width=1280&height=720&format=png`;
+
+    let shortUrl: string | null = null;
+    try {
+      const shortRes = await fetch("https://clc.is/api/links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: "clc.is", target_url: deployUrl, slug }),
+      });
+      if (shortRes.ok) {
+        const shortData = await shortRes.json() as { url: string }[] | { url: string };
+        shortUrl = Array.isArray(shortData) ? shortData[0]?.url : shortData.url;
+      }
+    } catch {}
 
     await db.updateDeployed(
       slug,
@@ -174,10 +187,14 @@ async function runBuild(slug: string, gitUrl: string): Promise<void> {
       uploadResult.totalFiles,
       uploadResult.totalSizeBytes,
       JSON.stringify(logLines),
-      screenshotUrl
+      screenshotUrl,
+      shortUrl
     );
 
     publishEvent(slug, { type: "screenshot", url: screenshotUrl });
+    if (shortUrl) {
+      publishEvent(slug, { type: "shortUrl", url: shortUrl });
+    }
 
     log("Done");
   } catch (err) {
