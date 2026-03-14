@@ -84,7 +84,7 @@ const PHASE_LABELS: Record<string, string> = {
 
 const PIPELINE_NODES = [
   { id: "github" as const, label: "GitHub", sublabel: "Clone", icon: Github },
-  { id: "render" as const, label: "Render", sublabel: "Build", icon: Server },
+  { id: "render" as const, label: "Railway", sublabel: "Build", icon: Server },
   { id: "upstash" as const, label: "Upstash", sublabel: "Stream", icon: Database },
   { id: "supabase" as const, label: "Supabase", sublabel: "Upload", icon: HardDrive },
   { id: "cloudflare" as const, label: "Cloudflare", sublabel: "Serve", icon: Globe },
@@ -209,11 +209,14 @@ const InfraPipeline = React.memo(function InfraPipeline({ logs, status, phaseMet
 const LiveMetrics = React.memo(function LiveMetrics({ phaseMetrics, elapsedMs, status }: { phaseMetrics: PhaseMetric[]; elapsedMs: number; status: DeployStatus }) {
   if (status === "idle") return null;
 
+  const serverElapsed = phaseMetrics.reduce((sum, p) => sum + p.durationMs, 0);
+  const displayTime = serverElapsed > 0 ? serverElapsed : elapsedMs;
+
   return (
-    <div className="rounded-lg border border-border/40 bg-muted/20 px-4 py-3 flex items-center gap-6 text-xs animate-fade-slide-in">
+    <div className="rounded-lg border border-border/40 bg-muted/20 px-3 sm:px-4 py-3 flex flex-wrap items-center gap-3 sm:gap-6 text-xs animate-fade-slide-in">
       <div className="flex items-center gap-1.5">
         <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-foreground tabular-nums font-medium">{formatDuration(elapsedMs)}</span>
+        <span className="text-foreground tabular-nums font-medium">{formatDuration(displayTime)}</span>
       </div>
       {phaseMetrics.map((p) => (
         <div key={p.name} className="flex items-center gap-1.5">
@@ -250,7 +253,7 @@ function BuildSummaryCard({ summary, logs, screenshotUrl }: { summary: BuildSumm
       </div>
       <div className="p-4 space-y-4">
         {/* Stats row */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           <div className="rounded-lg bg-muted/30 border border-border/30 p-3 text-center">
             <p className="text-lg font-semibold text-foreground tabular-nums">{formatDuration(summary.buildDurationMs)}</p>
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">Duration</p>
@@ -273,6 +276,7 @@ function BuildSummaryCard({ summary, logs, screenshotUrl }: { summary: BuildSumm
               alt="Deployment preview"
               className="w-full h-auto"
               loading="lazy"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
             />
           </div>
         )}
@@ -290,7 +294,7 @@ function BuildSummaryCard({ summary, logs, screenshotUrl }: { summary: BuildSumm
               />
             ))}
           </div>
-          <div className="flex justify-between mt-1.5">
+          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
             {summary.phases.map((p) => (
               <div key={p.name} className="flex items-center gap-1">
                 <div className={`w-1.5 h-1.5 rounded-full ${PHASE_COLORS[p.name] || "bg-muted-foreground"}`} />
@@ -412,6 +416,7 @@ function setProjectSlugInURL(slug: string) {
 
 export default function Home() {
   const [repoURL, setURL] = useState("");
+  const [customSlug, setCustomSlug] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [status, setStatus] = useState<DeployStatus>("idle");
   const [deployPreviewURL, setDeployPreviewURL] = useState<string>();
@@ -425,6 +430,7 @@ export default function Home() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [buildStartTime, setBuildStartTime] = useState<number | null>(null);
   const [screenshotUrl, setScreenshotUrl] = useState<string>();
+  const [shortUrl, setShortUrl] = useState<string>();
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -458,7 +464,12 @@ export default function Home() {
             return;
           }
           if (event.type === "screenshot") {
-            setScreenshotUrl(event.url as string);
+            const slug = new URLSearchParams(window.location.search).get("project");
+            if (slug) setScreenshotUrl(`${API_URL}/screenshots/${slug}`);
+            return;
+          }
+          if (event.type === "shortUrl") {
+            setShortUrl(event.url as string);
             return;
           }
         } catch {}
@@ -490,6 +501,7 @@ export default function Home() {
     setPhaseMetrics([]);
     setBuildSummary(null);
     setScreenshotUrl(undefined);
+    setShortUrl(undefined);
     setElapsedMs(0);
     const startTime = Date.now();
     setBuildStartTime(startTime);
@@ -502,7 +514,10 @@ export default function Home() {
       const res = await fetch(`${API_URL}/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gitURL: repoURL.trim() }),
+        body: JSON.stringify({
+          gitURL: repoURL.trim(),
+          ...(customSlug.trim() && { slug: customSlug.trim() }),
+        }),
       });
       const json = await res.json();
 
@@ -548,7 +563,7 @@ export default function Home() {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
       setStatus("idle");
     }
-  }, [repoURL, handleSocketMessage]);
+  }, [repoURL, customSlug, handleSocketMessage]);
 
   const copyURL = useCallback(() => {
     if (deployPreviewURL) {
@@ -574,7 +589,8 @@ export default function Home() {
                 ? `${process.env.NEXT_PUBLIC_DEPLOY_BASE_URL || "https://verse-proxy.sugotobasu1.workers.dev"}/${p.slug}`
                 : undefined
             );
-            setScreenshotUrl(p.screenshotUrl || undefined);
+            if (p.screenshotUrl) setScreenshotUrl(`${API_URL}/screenshots/${slug}`);
+            setShortUrl(p.shortUrl || undefined);
             if (p.buildDurationMs) setElapsedMs(p.buildDurationMs);
             if (p.buildLog) {
               try { setLogs(JSON.parse(p.buildLog)); } catch {}
@@ -618,15 +634,15 @@ export default function Home() {
       <InfraPipeline logs={logs} status={status} phaseMetrics={phaseMetrics} />
 
       {/* Main */}
-      <main className="flex-1 flex items-center justify-center relative px-4 py-8">
-        <div className="w-full max-w-xl space-y-6">
+      <main className="flex-1 flex items-center justify-center relative px-3 sm:px-4 py-6 sm:py-8">
+        <div className="w-full max-w-xl space-y-5 sm:space-y-6">
           {/* Hero */}
           <div className="text-center space-y-2">
-            <h1 className="text-4xl font-bold tracking-tight">
+            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
               Verse
             </h1>
-            <p className="text-muted-foreground">Built by Sugoto Basu</p>
-            <p className="text-muted-foreground/60 text-sm pt-2">
+            <p className="text-muted-foreground text-sm sm:text-base">Built by Sugoto Basu</p>
+            <p className="text-muted-foreground/60 text-xs sm:text-sm pt-2">
               Paste a GitHub repo URL and get a live preview instantly.
             </p>
           </div>
@@ -653,6 +669,13 @@ export default function Home() {
                 className="pl-9"
               />
             </div>
+            <Input
+              disabled={isLoading}
+              value={customSlug}
+              onChange={(e) => setCustomSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+              placeholder="Custom slug (optional) e.g. my-cool-site"
+              className="text-sm"
+            />
             {!isLoading && (
               <Button type="submit" disabled={!isValidURL} className="w-full">
                 Deploy
@@ -672,33 +695,60 @@ export default function Home() {
           </form>
 
           {/* Live metrics bar */}
-          <LiveMetrics phaseMetrics={phaseMetrics} elapsedMs={elapsedMs} status={status} />
+          {status === "deploying" && (
+            <LiveMetrics phaseMetrics={phaseMetrics} elapsedMs={elapsedMs} status={status} />
+          )}
 
           {/* Preview URL card */}
           <div className="animate-reveal" data-hidden={!(deployPreviewURL && status === "deployed") ? "true" : undefined}>
             <div>
-              <div className="rounded-xl border border-border/60 bg-card p-5 space-y-3 shadow-sm">
+              <div className="rounded-xl border border-border/60 bg-card p-4 sm:p-5 space-y-3 shadow-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-foreground">Preview Link</span>
                   <StatusBadge status={status} />
                 </div>
-                <div className="flex items-center gap-2 rounded-lg bg-muted/50 border border-border/40 px-3 py-2.5">
-                  <a
-                    href={deployPreviewURL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-muted-foreground hover:text-foreground truncate flex-1 transition-colors"
-                  >
-                    {deployPreviewURL}
-                  </a>
-                  <button
-                    onClick={copyURL}
-                    className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                    title="Copy URL"
-                  >
-                    {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
-                  </button>
-                </div>
+                {shortUrl && (
+                  <div className="flex items-center gap-2 rounded-lg bg-muted/50 border border-border/40 px-3 py-2.5">
+                    <a
+                      href={shortUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-foreground hover:text-primary truncate flex-1 transition-colors font-medium"
+                    >
+                      {shortUrl}
+                    </a>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(shortUrl);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                      className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                      title="Copy short URL"
+                    >
+                      {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                    </button>
+                  </div>
+                )}
+                {!shortUrl && (
+                  <div className="flex items-center gap-2 rounded-lg bg-muted/50 border border-border/40 px-3 py-2.5">
+                    <a
+                      href={deployPreviewURL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-muted-foreground hover:text-foreground truncate flex-1 transition-colors"
+                    >
+                      {deployPreviewURL}
+                    </a>
+                    <button
+                      onClick={copyURL}
+                      className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                      title="Copy URL"
+                    >
+                      {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -714,7 +764,7 @@ export default function Home() {
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Build Logs</span>
                   <span className="text-xs text-muted-foreground tabular-nums">{logs.length} lines</span>
                 </div>
-                <div className={`${firaCode.className} text-[13px] leading-relaxed p-4 h-[320px] overflow-y-auto`}>
+                <div className={`${firaCode.className} text-[12px] sm:text-[13px] leading-relaxed p-3 sm:p-4 h-[240px] sm:h-[320px] overflow-y-auto`}>
                   {logs.map((log, i) => {
                     const isError = log.toLowerCase().includes("error") || log.toLowerCase().includes("failed");
                     const isSuccess = log.toLowerCase().includes("uploaded") || log.toLowerCase().includes("complete");
@@ -735,9 +785,44 @@ export default function Home() {
               </div>
             </div>
           </div>
+          {/* Mobile: hosted sites (shown below content on small screens) */}
+          {deployments.filter((d) => d.status === "deployed").length > 0 && (
+            <div className="lg:hidden rounded-xl border border-border/60 bg-card shadow-sm overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-border/40 bg-muted/30 flex items-center justify-between">
+                <Link href="/deployments" className="text-xs font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
+                  Browse Hosted Sites
+                </Link>
+                <span className="text-[10px] text-muted-foreground/50 tabular-nums">
+                  {deployments.filter((d) => d.status === "deployed").length}
+                </span>
+              </div>
+              <div className="divide-y divide-border/30 max-h-48 overflow-y-auto">
+                {deployments
+                  .filter((d) => d.status === "deployed")
+                  .slice(0, 5)
+                  .map((d) => {
+                    const deployUrl = `${
+                      process.env.NEXT_PUBLIC_DEPLOY_BASE_URL || "https://verse-proxy.sugotobasu1.workers.dev"
+                    }/${d.slug}`;
+                    const repoName = d.gitUrl.replace("https://github.com/", "").replace(".git", "");
+                    return (
+                      <div key={d.slug} className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/20 transition-colors">
+                        <div className="w-2 h-2 rounded-full shrink-0 bg-emerald-400" />
+                        <div className="flex-1 min-w-0">
+                          <a href={deployUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-foreground hover:text-primary transition-colors truncate block">
+                            {d.slug}
+                          </a>
+                          <span className="text-xs text-muted-foreground truncate block">{repoName}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Right: hosted sites sidebar */}
+        {/* Right: hosted sites sidebar (desktop only) */}
         {deployments.filter((d) => d.status === "deployed").length > 0 && (
           <aside className="hidden lg:block w-72 fixed right-[8%] top-1/2 -translate-y-1/2">
             <div className="rounded-xl border border-border/60 bg-card shadow-sm overflow-hidden">
