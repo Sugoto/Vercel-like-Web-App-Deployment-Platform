@@ -61,7 +61,7 @@ function toApiProject(p: Project) {
   };
 }
 
-app.get("/", (c) => c.json({ name: "Verse API", version: "3.0.0" }));
+app.get("/", (c) => c.json({ name: "EdgeNative API", version: "3.0.0" }));
 
 app.get("/health", async (c) => {
   const redis = await getRedisStatus();
@@ -174,7 +174,7 @@ const server = Bun.serve({
   },
 });
 
-console.log(`Verse API running on port ${config.PORT}`);
+console.log(`EdgeNative API running on port ${config.PORT}`);
 
 function gracefulShutdown(signal: string) {
   console.log(`${signal} received, shutting down...`);

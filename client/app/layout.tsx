@@ -6,8 +6,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Verse",
-  description: "Deploy static sites from GitHub in seconds",
+  title: "EdgeNative",
+  description: "Deploy static sites from GitHub to the edge in seconds",
 };
 
 export default function RootLayout({

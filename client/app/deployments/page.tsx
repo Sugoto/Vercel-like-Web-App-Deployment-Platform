@@ -200,7 +200,7 @@ export default function DeploymentsPage() {
             >
               <ArrowLeft className="h-4 w-4" />
               <Rocket className="h-5 w-5 text-primary" />
-              <span className="font-semibold tracking-tight">Verse</span>
+              <span className="font-semibold tracking-tight">EdgeNative</span>
             </Link>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">

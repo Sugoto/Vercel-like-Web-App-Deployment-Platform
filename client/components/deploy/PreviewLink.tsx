@@ -6,11 +6,9 @@ import type { DeployStatus } from "@/lib/types";
 
 export function PreviewLink({
   deployPreviewURL,
-  shortUrl,
   status,
 }: {
   deployPreviewURL: string;
-  shortUrl?: string;
   status: DeployStatus;
 }) {
   const [copied, setCopied] = useState(false);
@@ -21,8 +19,6 @@ export function PreviewLink({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const displayUrl = shortUrl || deployPreviewURL;
-
   return (
     <div className="rounded-xl border border-border/60 bg-card/50 backdrop-blur-sm p-4 sm:p-5 space-y-3 glow-border-success">
       <div className="flex items-center justify-between">
@@ -31,17 +27,15 @@ export function PreviewLink({
       </div>
       <div className="flex items-center gap-2 rounded-lg bg-muted/50 border border-border/40 px-3 py-2.5">
         <a
-          href={shortUrl || deployPreviewURL}
+          href={deployPreviewURL}
           target="_blank"
           rel="noopener noreferrer"
-          className={`text-sm truncate flex-1 transition-colors ${
-            shortUrl ? "text-foreground hover:text-primary font-medium" : "text-muted-foreground hover:text-foreground"
-          }`}
+          className="text-sm truncate flex-1 text-foreground hover:text-primary font-medium transition-colors"
         >
-          {displayUrl}
+          {deployPreviewURL}
         </a>
         <button
-          onClick={() => copyToClipboard(displayUrl)}
+          onClick={() => copyToClipboard(deployPreviewURL)}
           className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
           title="Copy URL"
         >

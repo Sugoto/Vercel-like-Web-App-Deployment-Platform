@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Github, Globe, Loader2 } from "lucide-react";
 import { Inter } from "next/font/google";
-import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InfraPipeline } from "@/components/deploy/InfraPipeline";
@@ -46,12 +46,12 @@ export default function Home() {
   const [buildSummary, setBuildSummary] = useState<BuildSummary | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [screenshotUrl, setScreenshotUrl] = useState<string>();
-  const [shortUrl, setShortUrl] = useState<string>();
-
   const wsRef = useRef<WebSocket | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isValidURL = GITHUB_REGEX.test(repoURL.trim());
+  const isSlugValid = customSlug.trim().length === 0 || customSlug.trim().length >= 3;
+  const canDeploy = isValidURL && isSlugValid;
   const isLoading = status === "deploying";
 
   const fetchDeployments = useCallback(async () => {
@@ -78,13 +78,13 @@ export default function Home() {
             setBuildSummary(event as BuildSummary);
             return;
           }
+          if (event.type === "deployUrl") {
+            setDeployPreviewURL(event.url as string);
+            return;
+          }
           if (event.type === "screenshot") {
             const slug = getProjectSlugFromURL();
             if (slug) setScreenshotUrl(`${API_URL}/screenshots/${slug}`);
-            return;
-          }
-          if (event.type === "shortUrl") {
-            setShortUrl(event.url as string);
             return;
           }
         } catch {}
@@ -115,7 +115,6 @@ export default function Home() {
     setPhaseMetrics([]);
     setBuildSummary(null);
     setScreenshotUrl(undefined);
-    setShortUrl(undefined);
     setElapsedMs(0);
     const startTime = Date.now();
 
@@ -179,7 +178,6 @@ export default function Home() {
             setStatus(p.status === "deployed" ? "deployed" : p.status === "failed" ? "failed" : "idle");
             setDeployPreviewURL(p.status === "deployed" ? getDeployUrl(p.slug) : undefined);
             if (p.screenshotUrl) setScreenshotUrl(`${API_URL}/screenshots/${slug}`);
-            setShortUrl(p.shortUrl || undefined);
             if (p.buildDurationMs) setElapsedMs(p.buildDurationMs);
             if (p.buildLog) { try { setLogs(JSON.parse(p.buildLog)); } catch {} }
             if (p.buildDurationMs && p.totalFiles != null && p.totalSizeBytes != null) {
@@ -202,24 +200,6 @@ export default function Home() {
       <div className="fixed inset-0 bg-grid opacity-30 pointer-events-none" />
       <div className="fixed inset-0 bg-gradient-to-b from-background via-transparent to-background pointer-events-none" />
 
-      {/* Nav */}
-      <nav className="relative z-10 border-b border-border/40 bg-background/80 backdrop-blur-md">
-        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-foreground flex items-center justify-center">
-              <span className="text-background font-bold text-sm">V</span>
-            </div>
-            <span className="font-semibold tracking-tight text-sm">Verse</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link href="/deployments" className="text-xs text-muted-foreground hover:text-foreground transition-colors">Deployments</Link>
-            <a href="https://github.com/Sugoto/Vercel-like-Web-App-Deployment-Platform" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">
-              <Github className="h-4 w-4" />
-            </a>
-          </div>
-        </div>
-      </nav>
-
       <InfraPipeline logs={logs} status={status} phaseMetrics={phaseMetrics} />
 
       <main className="flex-1 flex items-center justify-center relative px-3 sm:px-6 py-8 sm:py-12">
@@ -228,19 +208,22 @@ export default function Home() {
           <div className="text-center space-y-4">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-border/60 bg-card/50 text-xs text-muted-foreground mb-2">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Deploy static sites from GitHub
+              Built by Sugoto Basu
             </div>
-            <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-gradient leading-tight">
-              Ship faster with Verse
+            <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-tight">
+              <span className="text-gradient">Ship faster with </span>
+              <span className="brand-glow-wrapper">
+                <span className="brand-glow-blur" aria-hidden="true">EdgeNative</span>
+                <span className="brand-text">EdgeNative</span>
+              </span>
             </h1>
             <p className="text-muted-foreground text-sm sm:text-base max-w-md mx-auto leading-relaxed">
-              Paste a GitHub repo URL. We clone, build, and deploy your site to a global edge network in seconds.
+              Paste a GitHub repo URL. We clone, build with <span className="text-foreground/80 font-medium">Bun</span>, and deploy to <span className="text-foreground/80 font-medium">Cloudflare's Edge Network</span> — globally distributed, in seconds.
             </p>
-            <p className="text-muted-foreground/40 text-xs">Built by Sugoto Basu</p>
           </div>
 
           {/* Deploy form */}
-          <form onSubmit={(e) => { e.preventDefault(); if (isValidURL && !isLoading) handleClickDeploy(); }} className="space-y-3">
+          <form onSubmit={(e) => { e.preventDefault(); if (canDeploy && !isLoading) handleClickDeploy(); }} className="space-y-3">
             <div className="rounded-xl border border-border/60 bg-card/50 backdrop-blur-sm p-4 space-y-3 glow-border">
               <div className="relative">
                 <Github className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -251,7 +234,11 @@ export default function Home() {
                 <Input disabled={isLoading} value={customSlug} onChange={(e) => setCustomSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} placeholder="Custom slug (optional)" className="pl-9 text-sm bg-background/50 border-border/40 h-10" />
               </div>
             </div>
-            {!isLoading && <Button type="submit" disabled={!isValidURL} className="w-full h-11 text-sm font-medium">Deploy to Edge</Button>}
+            {!isLoading && (
+              <div className="gradient-border-wrapper rounded-lg">
+                <Button type="submit" disabled={!canDeploy} className="w-full h-11 text-sm font-medium rounded-[7px]">Deploy to Edge</Button>
+              </div>
+            )}
             {isLoading && (
               <div className="w-full h-11 rounded-md bg-card/50 border border-border/40 flex items-center justify-center gap-2 text-sm text-muted-foreground animate-shimmer">
                 <Loader2 className="h-4 w-4 animate-spin" /> Building...
@@ -263,12 +250,38 @@ export default function Home() {
                 Enter a valid GitHub URL, e.g. <code className="text-muted-foreground font-mono">https://github.com/owner/repo</code>
               </p>
             )}
+            {!isSlugValid && (
+              <p className="text-muted-foreground/50 text-xs text-center">
+                Slug must be at least 3 characters, e.g. <code className="text-muted-foreground font-mono">my-app</code>
+              </p>
+            )}
+            {!isLoading && status === "idle" && !repoURL.trim() && (
+              <div className="text-center space-y-1.5 pt-1">
+                <p className="text-muted-foreground/60 text-xs">Try one of these</p>
+                <div className="flex flex-col items-center gap-2">
+                  {[
+                    { url: "https://github.com/Pilag6/rvct", label: "Pilag6/rvct" },
+                    { url: "https://github.com/codebayu/template-portfolio", label: "codebayu/template-portfolio" },
+                    { url: "https://github.com/chiarastef/react-weather-website", label: "chiarastef/react-weather-website" },
+                  ].map((repo) => (
+                    <button
+                      key={repo.url}
+                      type="button"
+                      onClick={() => { setURL(repo.url); setError(undefined); }}
+                      className="text-xs text-muted-foreground/70 hover:text-foreground font-mono border border-border/50 rounded-md px-2.5 py-1.5 hover:border-border/80 hover:bg-muted/30 transition-colors"
+                    >
+                      {repo.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </form>
 
           {status === "deploying" && <LiveMetrics phaseMetrics={phaseMetrics} elapsedMs={elapsedMs} status={status} />}
 
           <div className="animate-reveal" data-hidden={!(deployPreviewURL && status === "deployed") ? "true" : undefined}>
-            <div>{deployPreviewURL && <PreviewLink deployPreviewURL={deployPreviewURL} shortUrl={shortUrl} status={status} />}</div>
+            <div>{deployPreviewURL && <PreviewLink deployPreviewURL={deployPreviewURL} status={status} />}</div>
           </div>
 
           {buildSummary && status === "deployed" && <BuildSummaryCard summary={buildSummary} logs={logs} screenshotUrl={screenshotUrl} />}
