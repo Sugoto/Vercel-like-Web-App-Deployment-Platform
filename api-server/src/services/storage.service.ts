@@ -1,7 +1,7 @@
 import { readFile } from "fs/promises";
+import { createHash } from "crypto";
 import fs from "fs";
 import path from "path";
-import { lookup } from "mrmime";
 import { config } from "../config";
 
 export interface UploadResult {
@@ -28,6 +28,10 @@ function getAllFiles(dirPath: string): string[] {
 
   walk(dirPath);
   return results;
+}
+
+function md5(data: Buffer): string {
+  return createHash("md5").update(data).digest("hex");
 }
 
 const CF_API = "https://api.cloudflare.com/client/v4";
@@ -72,21 +76,30 @@ export async function uploadDirectory(
 
   await ensurePagesProject(slug);
 
-  const formData = new FormData();
+  const manifest: Record<string, string> = {};
+  const filesByHash = new Map<string, { buffer: Buffer; relativePath: string }>();
   let totalSizeBytes = 0;
   const files: { path: string; sizeBytes: number }[] = [];
 
   for (const filePath of filePaths) {
     const relativePath = path.relative(dirPath, filePath);
-    const contentType = lookup(filePath) || "application/octet-stream";
     const fileBuffer = await readFile(filePath);
     const sizeBytes = fileBuffer.length;
+    const hash = md5(fileBuffer);
 
     totalSizeBytes += sizeBytes;
     files.push({ path: relativePath, sizeBytes });
 
-    const blob = new Blob([fileBuffer], { type: contentType });
-    formData.append(relativePath, blob, relativePath);
+    const manifestKey = `/${relativePath}`;
+    manifest[manifestKey] = hash;
+    filesByHash.set(hash, { buffer: fileBuffer, relativePath });
+  }
+
+  const formData = new FormData();
+  formData.append("manifest", JSON.stringify(manifest));
+
+  for (const [hash, { buffer }] of filesByHash) {
+    formData.append(hash, new Blob([new Uint8Array(buffer)]));
   }
 
   const deployRes = await fetch(
@@ -103,10 +116,6 @@ export async function uploadDirectory(
     const msg = (err as any)?.errors?.[0]?.message || deployRes.statusText;
     throw new Error(`Cloudflare Pages deployment failed: ${msg}`);
   }
-
-  const result = (await deployRes.json()) as {
-    result: { url: string; environment: string };
-  };
 
   const deployUrl = `https://${slug}.pages.dev`;
   onLog(`Deployed to ${deployUrl}`);
