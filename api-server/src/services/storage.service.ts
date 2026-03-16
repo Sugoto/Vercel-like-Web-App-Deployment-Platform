@@ -1,5 +1,4 @@
-import { readFile } from "fs/promises";
-import { createHash } from "crypto";
+import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import { config } from "../config";
@@ -28,10 +27,6 @@ function getAllFiles(dirPath: string): string[] {
 
   walk(dirPath);
   return results;
-}
-
-function md5(data: Buffer): string {
-  return createHash("md5").update(data).digest("hex");
 }
 
 const CF_API = "https://api.cloudflare.com/client/v4";
@@ -66,58 +61,90 @@ async function ensurePagesProject(slug: string): Promise<void> {
   }
 }
 
+async function getPagesSubdomain(slug: string): Promise<string> {
+  const res = await fetch(
+    `${CF_API}/accounts/${config.CF_ACCOUNT_ID}/pages/projects/${slug}`,
+    { headers: { Authorization: `Bearer ${config.CF_API_TOKEN}` } }
+  );
+
+  if (res.ok) {
+    const data = (await res.json()) as { result: { subdomain: string } };
+    return data.result.subdomain;
+  }
+
+  return `${slug}.pages.dev`;
+}
+
+function runWrangler(
+  args: string[],
+  onLog: (msg: string) => void
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const output: string[] = [];
+    const p = spawn("bunx", ["wrangler", ...args], {
+      stdio: "pipe",
+      env: {
+        ...process.env,
+        CLOUDFLARE_ACCOUNT_ID: config.CF_ACCOUNT_ID,
+        CLOUDFLARE_API_TOKEN: config.CF_API_TOKEN,
+      },
+    });
+
+    p.stdout?.on("data", (data: Buffer) => {
+      const lines = data.toString().split("\n").filter(Boolean);
+      lines.forEach((line) => {
+        output.push(line);
+        onLog(line);
+      });
+    });
+
+    p.stderr?.on("data", (data: Buffer) => {
+      const lines = data.toString().split("\n").filter(Boolean);
+      lines.forEach((line) => {
+        output.push(line);
+        onLog(line);
+      });
+    });
+
+    p.on("error", reject);
+
+    p.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Wrangler exited with code ${code}`));
+      } else {
+        resolve(output.join("\n"));
+      }
+    });
+  });
+}
+
 export async function uploadDirectory(
   dirPath: string,
   slug: string,
   onLog: (msg: string) => void
 ): Promise<UploadResult> {
   const filePaths = getAllFiles(dirPath);
-  onLog(`Uploading ${filePaths.length} files to Cloudflare Pages...`);
+  onLog(`Deploying ${filePaths.length} files to Cloudflare Pages...`);
 
-  await ensurePagesProject(slug);
-
-  const manifest: Record<string, string> = {};
-  const filesByHash = new Map<string, { buffer: Buffer; relativePath: string }>();
   let totalSizeBytes = 0;
   const files: { path: string; sizeBytes: number }[] = [];
 
   for (const filePath of filePaths) {
     const relativePath = path.relative(dirPath, filePath);
-    const fileBuffer = await readFile(filePath);
-    const sizeBytes = fileBuffer.length;
-    const hash = md5(fileBuffer);
-
-    totalSizeBytes += sizeBytes;
-    files.push({ path: relativePath, sizeBytes });
-
-    const manifestKey = `/${relativePath}`;
-    manifest[manifestKey] = hash;
-    filesByHash.set(hash, { buffer: fileBuffer, relativePath });
+    const stat = fs.statSync(filePath);
+    totalSizeBytes += stat.size;
+    files.push({ path: relativePath, sizeBytes: stat.size });
   }
 
-  const formData = new FormData();
-  formData.append("manifest", JSON.stringify(manifest));
+  await ensurePagesProject(slug);
 
-  for (const [hash, { buffer }] of filesByHash) {
-    formData.append(hash, new Blob([new Uint8Array(buffer)]));
-  }
-
-  const deployRes = await fetch(
-    `${CF_API}/accounts/${config.CF_ACCOUNT_ID}/pages/projects/${slug}/deployments`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${config.CF_API_TOKEN}` },
-      body: formData,
-    }
+  await runWrangler(
+    ["pages", "deploy", dirPath, "--project-name", slug, "--branch", "main", "--commit-dirty=true"],
+    onLog
   );
 
-  if (!deployRes.ok) {
-    const err = await deployRes.json().catch(() => ({}));
-    const msg = (err as any)?.errors?.[0]?.message || deployRes.statusText;
-    throw new Error(`Cloudflare Pages deployment failed: ${msg}`);
-  }
-
-  const deployUrl = `https://${slug}.pages.dev`;
+  const subdomain = await getPagesSubdomain(slug);
+  const deployUrl = `https://${subdomain}`;
   onLog(`Deployed to ${deployUrl}`);
 
   return { totalFiles: filePaths.length, totalSizeBytes, files, deployUrl };

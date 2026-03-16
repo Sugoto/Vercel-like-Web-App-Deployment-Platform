@@ -95,7 +95,7 @@ const BUILD_TIMEOUT = 5 * 60 * 1000;
 
 async function runBuild(slug: string, gitUrl: string): Promise<void> {
   buildInProgress = true;
-  const tmpDir = await mkdtemp(path.join(os.tmpdir(), `verse-${slug}-`));
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), `edgenative-${slug}-`));
   const buildStartTime = Date.now();
   const logLines: string[] = [];
   const phases: { name: string; durationMs: number }[] = [];
@@ -165,20 +165,8 @@ async function runBuild(slug: string, gitUrl: string): Promise<void> {
     });
 
     const deployUrl = uploadResult.deployUrl;
+    publishEvent(slug, { type: "deployUrl", url: deployUrl });
     const screenshotUrl = `https://pageshot.site/v1/screenshot?url=${encodeURIComponent(deployUrl)}&width=1280&height=720&format=png`;
-
-    let shortUrl: string | null = null;
-    try {
-      const shortRes = await fetch("https://clc.is/api/links", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domain: "clc.is", target_url: deployUrl, slug }),
-      });
-      if (shortRes.ok) {
-        const shortData = await shortRes.json() as { url: string }[] | { url: string };
-        shortUrl = Array.isArray(shortData) ? shortData[0]?.url : shortData.url;
-      }
-    } catch {}
 
     await db.updateDeployed(
       slug,
@@ -187,13 +175,10 @@ async function runBuild(slug: string, gitUrl: string): Promise<void> {
       uploadResult.totalSizeBytes,
       JSON.stringify(logLines),
       screenshotUrl,
-      shortUrl
+      null
     );
 
     publishEvent(slug, { type: "screenshot", url: screenshotUrl });
-    if (shortUrl) {
-      publishEvent(slug, { type: "shortUrl", url: shortUrl });
-    }
 
     log("Done");
   } catch (err) {

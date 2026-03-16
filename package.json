@@ -1,5 +1,5 @@
 {
-  "name": "verse",
+  "name": "edgenative",
   "private": true,
   "workspaces": ["api-server", "client"],
   "scripts": {

@@ -1,4 +1,4 @@
-# Verse — Deploy Static Sites from GitHub
+# EdgeNative — Deploy Static Sites from GitHub
 
 A Vercel-inspired deployment platform that takes a GitHub repository URL, builds it, and deploys the static output to Cloudflare's edge network — all on free-tier infrastructure with no credit card required.
 
