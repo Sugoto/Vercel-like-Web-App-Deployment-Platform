@@ -90,7 +90,7 @@ app.post(
     }
 
     const project = await db.insert(slug, gitURL, "queued");
-    const deployUrl = `${config.DEPLOY_BASE_URL.replace(/\/$/, "")}/${slug}`;
+    const deployUrl = `https://${slug}.pages.dev`;
     const queuePosition = getQueueLength() + 1;
 
     setTimeout(() => {

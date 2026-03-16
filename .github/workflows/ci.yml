@@ -28,18 +28,3 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: cd client && bun run build
-
-  deploy-worker:
-    name: Deploy Worker
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [typecheck]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - run: bun install --frozen-lockfile
-      - run: cd worker && bunx wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

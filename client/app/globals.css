@@ -51,25 +51,25 @@
 }
 
 .dark {
-  --background: hsl(240 10% 3.9%);
-  --foreground: hsl(0 0% 98%);
-  --card: hsl(240 10% 3.9%);
-  --card-foreground: hsl(0 0% 98%);
-  --popover: hsl(240 10% 3.9%);
-  --popover-foreground: hsl(0 0% 98%);
+  --background: hsl(220 15% 5%);
+  --foreground: hsl(0 0% 95%);
+  --card: hsl(220 15% 7%);
+  --card-foreground: hsl(0 0% 95%);
+  --popover: hsl(220 15% 7%);
+  --popover-foreground: hsl(0 0% 95%);
   --primary: hsl(0 0% 98%);
-  --primary-foreground: hsl(240 5.9% 10%);
-  --secondary: hsl(240 3.7% 15.9%);
+  --primary-foreground: hsl(220 15% 5%);
+  --secondary: hsl(220 10% 12%);
   --secondary-foreground: hsl(0 0% 98%);
-  --muted: hsl(240 3.7% 15.9%);
-  --muted-foreground: hsl(240 5% 64.9%);
-  --accent: hsl(240 3.7% 15.9%);
+  --muted: hsl(220 10% 12%);
+  --muted-foreground: hsl(220 5% 55%);
+  --accent: hsl(220 10% 12%);
   --accent-foreground: hsl(0 0% 98%);
   --destructive: hsl(0 62.8% 30.6%);
   --destructive-foreground: hsl(0 0% 98%);
-  --border: hsl(240 3.7% 15.9%);
-  --input: hsl(240 3.7% 15.9%);
-  --ring: hsl(240 4.9% 83.9%);
+  --border: hsl(220 10% 14%);
+  --input: hsl(220 10% 14%);
+  --ring: hsl(220 5% 70%);
 }
 
 @layer base {
@@ -77,8 +77,35 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
   }
+}
+
+/* Dot grid background */
+.bg-grid {
+  background-image: radial-gradient(circle, hsl(220 10% 20%) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Gradient text */
+.text-gradient {
+  background: linear-gradient(135deg, hsl(0 0% 100%) 0%, hsl(220 10% 60%) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glow effects */
+.glow-border {
+  box-shadow: 0 0 0 1px hsl(220 10% 14%), 0 0 20px -5px hsla(220 60% 50% / 0.15);
+}
+
+.glow-border-active {
+  box-shadow: 0 0 0 1px hsl(45 100% 50% / 0.3), 0 0 30px -5px hsla(45 100% 50% / 0.1);
+}
+
+.glow-border-success {
+  box-shadow: 0 0 0 1px hsl(160 60% 45% / 0.3), 0 0 30px -5px hsla(160 60% 45% / 0.1);
 }
 
 /* Smooth reveal/collapse for cards */
@@ -112,4 +139,15 @@
 
 .animate-fade-slide-in {
   animation: fade-slide-in 500ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, hsla(220 60% 50% / 0.05) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
 }

@@ -4,7 +4,6 @@ import { mkdtemp, rm } from "fs/promises";
 import os from "os";
 import path from "path";
 import { db } from "../db";
-import { config } from "../config";
 import { publishLog } from "./log.service";
 import { uploadDirectory } from "./storage.service";
 
@@ -165,7 +164,7 @@ async function runBuild(slug: string, gitUrl: string): Promise<void> {
       files: uploadResult.files,
     });
 
-    const deployUrl = `${config.DEPLOY_BASE_URL.replace(/\/$/, "")}/${slug}`;
+    const deployUrl = uploadResult.deployUrl;
     const screenshotUrl = `https://pageshot.site/v1/screenshot?url=${encodeURIComponent(deployUrl)}&width=1280&height=720&format=png`;
 
     let shortUrl: string | null = null;

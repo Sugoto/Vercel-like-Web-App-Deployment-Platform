@@ -1,74 +1,71 @@
 # Verse — Deploy Static Sites from GitHub
 
-A Vercel-inspired deployment platform that takes a GitHub repository URL, builds it, and serves the static output on a unique URL — all on free-tier infrastructure with no credit card required.
+A Vercel-inspired deployment platform that takes a GitHub repository URL, builds it, and deploys the static output to Cloudflare's edge network — all on free-tier infrastructure with no credit card required.
 
 ## Architecture
 
 ```
 ┌──────────────┐  POST /projects   ┌─────────────────────────────┐
 │    Client     │─────────────────▶│        API Server            │
-│   (Next.js)   │◀────────────────│  Express + Socket.IO + SQLite │
+│   (Next.js)   │◀────────────────│      Bun + Hono              │
 │   on Vercel   │   WebSocket logs │  Builds in-process           │
-└──────────────┘                   │        on Render              │
+└──────────────┘                   │       on Railway              │
                                    └──────────┬──────────────────┘
-                                        upload │   ▲▼ pub/sub
+                                        deploy │   ▲▼ pub/sub
                                    ┌───────────▼──┐  ┌───────────┐
-                                   │   Supabase    │  │  Upstash  │
-                                   │   Storage     │  │   Redis   │
-                                   └──────┬────────┘  └───────────┘
-                                          │ serves
+                                   │  Cloudflare   │  │  Upstash  │
+                                   │    Pages      │  │   Redis   │
+                                   │  (edge CDN)   │  └───────────┘
+                                   └──────────────┘
+                                          │
                                    ┌──────▼────────────┐
-                                   │ Cloudflare Worker  │
-                                   │  (serves sites)    │
+                                   │   Supabase DB      │
+                                   │  (project metadata) │
                                    └───────────────────┘
 ```
 
 **How it works:**
 
 1. User pastes a public GitHub repo URL in the client and clicks **Deploy**
-2. API server clones the repo, runs `npm install && npm run build`
-3. Build output (`dist/`, `build/`, or `out/`) is uploaded to Supabase Storage
-4. Build logs stream to the client in real-time via Redis pub/sub + Socket.IO
-5. Deployed site is served by a Cloudflare Worker reading from Supabase's public bucket URL
+2. API server clones the repo, runs `bun install && bun run build`
+3. Build output (`dist/`, `build/`, or `out/`) is deployed to Cloudflare Pages via the Direct Upload API
+4. Build logs stream to the client in real-time via Redis pub/sub + WebSocket
+5. Deployed site is served natively from Cloudflare's edge network at `{slug}.pages.dev`
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js 14, React 18, TypeScript, Tailwind CSS, shadcn/ui |
-| API Server | Express 5, Socket.IO, TypeScript, Drizzle ORM, SQLite |
-| Storage | Supabase Storage (1 GB free) |
+| Frontend | Next.js, React, TypeScript, Tailwind CSS, shadcn/ui |
+| API Server | Bun, Hono, TypeScript |
+| Database | Supabase (PostgreSQL) |
+| Edge Hosting | Cloudflare Pages (Direct Upload API) |
 | Pub/Sub | Upstash Redis |
-| Static Serving | Cloudflare Workers |
-| Hosting | Vercel (client), Render (API) |
+| Hosting | Vercel (client), Railway (API) |
 
 ## Project Structure
 
 ```
-├── api-server/          # Express API + build logic + Socket.IO
+├── api-server/          # Hono API + build logic + WebSocket
 │   ├── src/
 │   │   ├── index.ts           # Entry point
 │   │   ├── config.ts          # Environment validation (zod)
-│   │   ├── db/                # SQLite schema + connection
-│   │   ├── services/          # Build, storage, log services
-│   │   ├── middleware/        # Validation, error handling, rate limiting
-│   │   └── routes/            # /projects, /health endpoints
+│   │   ├── db/                # Supabase DB client
+│   │   └── services/          # Build, storage (CF Pages), log services
 │   ├── Dockerfile
 │   └── .env.example
 ├── client/              # Next.js frontend
 │   ├── app/
-│   │   └── page.tsx           # Deploy UI + log viewer
-│   ├── components/ui/         # shadcn/ui components
-│   └── .env.example
-├── worker/              # Cloudflare Worker (serves deployed sites)
-│   ├── src/index.ts
-│   └── wrangler.toml
+│   │   ├── page.tsx           # Deploy UI + log viewer
+│   │   └── deployments/       # Deployment history page
+│   ├── components/            # UI components
+│   └── lib/                   # Types, utils
 └── docker-compose.yml   # Local dev (Redis + API)
 ```
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) 18+
+- [Bun](https://bun.sh/) 1.0+
 - [Git](https://git-scm.com/)
 - [Docker](https://www.docker.com/) (optional, for local Redis)
 
@@ -76,10 +73,10 @@ A Vercel-inspired deployment platform that takes a GitHub repository URL, builds
 
 | Service | What For | Sign Up |
 |---------|----------|---------|
-| [Supabase](https://supabase.com/dashboard) | Storage for build output (1 GB free) | No credit card needed |
+| [Cloudflare Pages](https://dash.cloudflare.com) | Edge hosting for deployed sites (unlimited bandwidth) | No credit card needed |
+| [Supabase](https://supabase.com/dashboard) | PostgreSQL database for project metadata | No credit card needed |
 | [Upstash](https://console.upstash.com) | Redis for real-time log streaming | No credit card needed |
-| [Cloudflare Workers](https://dash.cloudflare.com) | Serves deployed sites globally | No credit card needed |
-| [Render](https://render.com) | Hosting the API server | No credit card needed |
+| [Railway](https://railway.app) | Hosting the API server | No credit card needed |
 | [Vercel](https://vercel.com) | Hosting the client | No credit card needed |
 
 ## Local Development
@@ -96,19 +93,19 @@ cd Vercel-like-Web-App-Deployment-Platform
 ```bash
 cd api-server
 cp .env.example .env
-# Fill in your Supabase credentials, Upstash Redis URL, and Worker URL
-npm install
-npm run dev
+# Fill in your Supabase, Upstash, and Cloudflare credentials
+bun install
+bun run dev
 ```
 
 ### 3. Set up the client
 
 ```bash
 cd client
-cp .env.example .env.local
-# Set NEXT_PUBLIC_API_URL=http://localhost:9000
-npm install
-npm run dev
+# Create .env.local with:
+#   NEXT_PUBLIC_API_URL=http://localhost:9000
+bun install
+bun run dev
 ```
 
 ### 4. (Optional) Use Docker Compose for Redis
@@ -121,37 +118,31 @@ docker compose up redis -d
 # Then set REDIS_URL=redis://localhost:6379 in api-server/.env
 ```
 
-### 5. Deploy the Cloudflare Worker
-
-```bash
-cd worker
-npm install
-npx wrangler login
-# Edit wrangler.toml — set STORAGE_BASE_URL to your Supabase public bucket URL
-npm run deploy
-```
-
 ## Deployment
 
-### API Server → Render
+### API Server → Railway
 
-1. Go to [render.com](https://render.com), create a new **Web Service**
+1. Go to [railway.app](https://railway.app), create a new project
 2. Connect your GitHub repo, set the **Root Directory** to `api-server`
-3. **Build Command**: `npm install`
-4. **Start Command**: `npm start`
+3. **Build Command**: `bun install`
+4. **Start Command**: `bun run start`
 5. Add all environment variables from `api-server/.env.example`
 
 ### Client → Vercel
 
 1. Go to [vercel.com](https://vercel.com), import your GitHub repo
 2. Set the **Root Directory** to `client`
-3. Add env variable: `NEXT_PUBLIC_API_URL` = your Render service URL
+3. Add env variable: `NEXT_PUBLIC_API_URL` = your Railway service URL
 
-### Worker → Cloudflare
+### Cloudflare Pages Setup
 
-1. Run `cd worker && npm run deploy`
-2. Set `STORAGE_BASE_URL` in `wrangler.toml` to:
-   `https://<project_ref>.supabase.co/storage/v1/object/public/verse-outputs`
+1. Create a Cloudflare account at [dash.cloudflare.com](https://dash.cloudflare.com)
+2. Note your **Account ID** from the dashboard sidebar
+3. Create an API Token: My Profile → API Tokens → Create Token
+   - Use the "Edit Cloudflare Pages" template
+4. Add `CF_ACCOUNT_ID` and `CF_API_TOKEN` to your API server environment
+
+Pages projects are created automatically when you deploy — no manual setup needed.
 
 ## API Endpoints
 
@@ -177,19 +168,19 @@ npm run deploy
   "status": "queued",
   "data": {
     "projectSlug": "brave-red-whale",
-    "url": "https://verse-proxy.your-subdomain.workers.dev/brave-red-whale"
+    "url": "https://brave-red-whale.pages.dev"
   }
 }
 ```
 
 ## Limitations
 
-- **One build at a time**: Render free tier has limited resources (0.1 CPU, 512 MB RAM), so concurrent builds are rejected
-- **Cold starts**: Render free tier spins down after 15 minutes of inactivity — first request takes ~30-60 seconds
-- **Ephemeral database**: SQLite runs on Render's ephemeral filesystem — deployment history resets on service restart (deployed sites on Supabase are unaffected)
-- **Static sites only**: Only supports projects that output static files via `npm run build` (Vite, CRA, vanilla, etc.)
+- **One build at a time**: Builds run sequentially to keep resource usage predictable
+- **Cold starts**: Railway free tier may spin down after inactivity — first request can take a few seconds
+- **Static sites only**: Only supports projects that output static files via `bun run build` (Vite, CRA, vanilla, etc.)
 - **Public repos only**: Private GitHub repositories require authentication which is not supported
-- **1 GB storage limit**: Supabase free tier provides 1 GB — sufficient for ~50-100 small project deployments
+- **500 deploys/month**: Cloudflare Pages free tier limit
+- **25 MB max file size**: Individual files in the build output cannot exceed 25 MB
 
 ## License
 

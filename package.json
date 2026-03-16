@@ -1,7 +1,7 @@
 {
   "name": "verse",
   "private": true,
-  "workspaces": ["api-server", "client", "worker"],
+  "workspaces": ["api-server", "client"],
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
