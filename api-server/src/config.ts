@@ -7,9 +7,9 @@ const envSchema = z.object({
 
   SUPABASE_URL: z.string().min(1, "SUPABASE_URL is required"),
   SUPABASE_SERVICE_KEY: z.string().min(1, "SUPABASE_SERVICE_KEY is required"),
-  SUPABASE_BUCKET: z.string().default("verse-outputs"),
 
-  DEPLOY_BASE_URL: z.string().min(1, "DEPLOY_BASE_URL is required"),
+  CF_ACCOUNT_ID: z.string().min(1, "CF_ACCOUNT_ID is required"),
+  CF_API_TOKEN: z.string().min(1, "CF_API_TOKEN is required"),
 });
 
 const parsed = envSchema.safeParse(Bun.env);

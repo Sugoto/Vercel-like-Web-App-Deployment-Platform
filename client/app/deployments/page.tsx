@@ -18,8 +18,6 @@ import {
 import { Fira_Code, Inter } from "next/font/google";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9001";
-const DEPLOY_BASE_URL =
-  process.env.NEXT_PUBLIC_DEPLOY_BASE_URL || "https://verse-proxy.sugotobasu1.workers.dev";
 
 const firaCode = Fira_Code({ subsets: ["latin"] });
 const inter = Inter({ subsets: ["latin"] });
@@ -62,7 +60,7 @@ function StatusIcon({ status }: { status: string }) {
 
 function DeploymentRow({ d }: { d: Deployment }) {
   const [expanded, setExpanded] = useState(false);
-  const deployUrl = `${DEPLOY_BASE_URL}/${d.slug}`;
+  const deployUrl = `https://${d.slug}.pages.dev`;
   const repoName = d.gitUrl.replace("https://github.com/", "").replace(".git", "");
   const logs: string[] = d.buildLog ? JSON.parse(d.buildLog) : [];
 

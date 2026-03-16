@@ -1,16 +1,14 @@
 import { readFile } from "fs/promises";
 import fs from "fs";
 import path from "path";
-import { createClient } from "@supabase/supabase-js";
 import { lookup } from "mrmime";
 import { config } from "../config";
-
-const supabase = createClient(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY);
 
 export interface UploadResult {
   totalFiles: number;
   totalSizeBytes: number;
   files: { path: string; sizeBytes: number }[];
+  deployUrl: string;
 }
 
 function getAllFiles(dirPath: string): string[] {
@@ -32,7 +30,37 @@ function getAllFiles(dirPath: string): string[] {
   return results;
 }
 
-const UPLOAD_CONCURRENCY = 5;
+const CF_API = "https://api.cloudflare.com/client/v4";
+
+async function ensurePagesProject(slug: string): Promise<void> {
+  const res = await fetch(
+    `${CF_API}/accounts/${config.CF_ACCOUNT_ID}/pages/projects/${slug}`,
+    { headers: { Authorization: `Bearer ${config.CF_API_TOKEN}` } }
+  );
+
+  if (res.ok) return;
+
+  const createRes = await fetch(
+    `${CF_API}/accounts/${config.CF_ACCOUNT_ID}/pages/projects`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.CF_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: slug,
+        production_branch: "main",
+      }),
+    }
+  );
+
+  if (!createRes.ok) {
+    const err = await createRes.json().catch(() => ({}));
+    const msg = (err as any)?.errors?.[0]?.message || createRes.statusText;
+    throw new Error(`Failed to create Pages project "${slug}": ${msg}`);
+  }
+}
 
 export async function uploadDirectory(
   dirPath: string,
@@ -40,44 +68,48 @@ export async function uploadDirectory(
   onLog: (msg: string) => void
 ): Promise<UploadResult> {
   const filePaths = getAllFiles(dirPath);
-  onLog(`Uploading ${filePaths.length} files...`);
+  onLog(`Uploading ${filePaths.length} files to Cloudflare Pages...`);
 
+  await ensurePagesProject(slug);
+
+  const formData = new FormData();
   let totalSizeBytes = 0;
   const files: { path: string; sizeBytes: number }[] = [];
 
-  // Process uploads in parallel batches
-  for (let i = 0; i < filePaths.length; i += UPLOAD_CONCURRENCY) {
-    const batch = filePaths.slice(i, i + UPLOAD_CONCURRENCY);
+  for (const filePath of filePaths) {
+    const relativePath = path.relative(dirPath, filePath);
+    const contentType = lookup(filePath) || "application/octet-stream";
+    const fileBuffer = await readFile(filePath);
+    const sizeBytes = fileBuffer.length;
 
-    const results = await Promise.all(
-      batch.map(async (filePath) => {
-        const relativePath = path.relative(dirPath, filePath);
-        const key = `__outputs/${slug}/${relativePath}`;
-        const contentType = lookup(filePath) || "application/octet-stream";
-        const fileBuffer = await readFile(filePath);
-        const sizeBytes = fileBuffer.length;
+    totalSizeBytes += sizeBytes;
+    files.push({ path: relativePath, sizeBytes });
 
-    const { error } = await supabase.storage
-      .from(config.SUPABASE_BUCKET)
-      .upload(key, fileBuffer, {
-            contentType,
-            upsert: true,
-          });
-
-        if (error) {
-          throw new Error(`Failed to upload ${relativePath}: ${error.message}`);
-        }
-
-        onLog(`Uploaded ${relativePath}`);
-        return { path: relativePath, sizeBytes };
-      })
-    );
-
-    for (const r of results) {
-      totalSizeBytes += r.sizeBytes;
-      files.push(r);
-    }
+    const blob = new Blob([fileBuffer], { type: contentType });
+    formData.append(relativePath, blob, relativePath);
   }
 
-  return { totalFiles: filePaths.length, totalSizeBytes, files };
+  const deployRes = await fetch(
+    `${CF_API}/accounts/${config.CF_ACCOUNT_ID}/pages/projects/${slug}/deployments`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.CF_API_TOKEN}` },
+      body: formData,
+    }
+  );
+
+  if (!deployRes.ok) {
+    const err = await deployRes.json().catch(() => ({}));
+    const msg = (err as any)?.errors?.[0]?.message || deployRes.statusText;
+    throw new Error(`Cloudflare Pages deployment failed: ${msg}`);
+  }
+
+  const result = (await deployRes.json()) as {
+    result: { url: string; environment: string };
+  };
+
+  const deployUrl = `https://${slug}.pages.dev`;
+  onLog(`Deployed to ${deployUrl}`);
+
+  return { totalFiles: filePaths.length, totalSizeBytes, files, deployUrl };
 }
